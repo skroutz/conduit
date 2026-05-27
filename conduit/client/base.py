@@ -10,7 +10,11 @@ from conduit.utils import PhabricatorAPIError
 
 class BasePhabricatorClient(ABC):
     def __init__(
-        self, api_url: str, api_token: str, http_client: Optional[httpx.Client] = None
+        self,
+        api_url: str,
+        api_token: str,
+        http_client: Optional[httpx.Client] = None,
+        oauth_token: bool = False,
     ):
         """
         Initialize the base Phabricator client.
@@ -19,9 +23,12 @@ class BasePhabricatorClient(ABC):
             api_url: Base URL for the Phabricator API
             api_token: API token for authentication
             http_client: Optional httpx client to reuse
+            oauth_token: When True, send the token as ``access_token`` (OAuth2
+                bearer) instead of ``api.token`` (Conduit API key)
         """
         self.api_url = api_url.rstrip("/") + "/"
         self.api_token = api_token
+        self.oauth_token = oauth_token
         self._owns_client = http_client is None
 
         if http_client is None:
@@ -56,7 +63,10 @@ class BasePhabricatorClient(ABC):
         if params is None:
             params = {}
 
-        params["api.token"] = self.api_token
+        if self.oauth_token:
+            params["access_token"] = self.api_token
+        else:
+            params["api.token"] = self.api_token
 
         url = urllib.parse.urljoin(self.api_url, method)
 

@@ -299,13 +299,14 @@ def register_tools(  # noqa: C901
         Get details of a specific Phabricator task
 
         Args:
-            task_id: The numeric ID of the task to retrieve (e.g., 1234)
+            task_id: The numeric ID of the task to retrieve (e.g., 1234 or T1234)
 
         Returns:
             Task details
         """
         client = get_client_func()
-        result = client.maniphest.get_task(task_id)
+        numeric_id = int(task_id.lstrip("Tt"))
+        result = client.maniphest.get_task(numeric_id)
         return {"success": True, "task": result}
 
     @mcp.tool()
@@ -427,6 +428,10 @@ def register_tools(  # noqa: C901
             Transaction history with all changes and comments for the task
         """
         client = get_client_func()
+
+        # Strip T/t prefix if present (e.g. "T244969" → "244969")
+        if task_id and task_id[0] in ("T", "t") and task_id[1:].isdigit():
+            task_id = task_id[1:]
 
         # If task_id is a numeric ID, get PHID first
         if task_id.isdigit():

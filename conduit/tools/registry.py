@@ -273,18 +273,19 @@ def register_tools(  # noqa: C901
 
     @mcp.tool()
     @handle_api_errors
-    def pha_task_get(task_id: int) -> dict:
+    def pha_task_get(task_id: str) -> dict:
         """
         Get details of a specific Phabricator task
 
         Args:
-            task_id: The ID of the task to retrieve, e.g. 1234
+            task_id: The ID of the task to retrieve, e.g. 1234 or T1234
 
         Returns:
             Task details
         """
         client = get_client_func()
-        result = client.maniphest.get_task(task_id)
+        numeric_id = int(str(task_id).lstrip("Tt"))
+        result = client.maniphest.get_task(numeric_id)
         return {"success": True, "task": result}
 
     @mcp.tool()
