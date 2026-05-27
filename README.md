@@ -60,6 +60,63 @@ X-PHABRICATOR-TOKEN: your-32-character-token-here
 ```
 
 ## Configuration
+
+### Authentication — OAuth2 (Recommended for shared deployments)
+
+OAuth2 lets users authenticate through their browser without manually managing API tokens. This is the recommended approach when deploying Conduit for a team, as it removes the need for users to provision or rotate Conduit API keys.
+
+#### Prerequisites
+
+An administrator must register an OAuth2 application in Phabricator once:
+
+1. Go to **Settings → OAuth Server Applications → Create Application**
+2. Set the **Redirect URI** to `http://localhost:<port>` where `<port>` is a fixed port your users will have free on their machine (e.g. `http://localhost:8889`)
+3. Note the **Client ID** and **Client Secret** from the application settings
+
+#### Usage
+
+```bash
+uvx --from git+https://github.com/your-org/conduit conduit-mcp \
+  --url https://your-phabricator-instance.com/api/ \
+  --client-id <client-id> \
+  --client-secret <client-secret> \
+  --oauth-redirect-port 8889 \
+  --scope "whoami maniphest"
+```
+
+`--scope` is optional and defaults to `whoami maniphest`. Add further space-separated scopes if your usage requires access to other Phabricator APIs (e.g. `differential`, `diffusion`).
+
+On first run, a browser window opens for the user to log in. The resulting token is cached in `~/.conduit/oauth_tokens.json` (readable only by the current user) and reused on subsequent runs — no further browser prompts until the token expires.
+
+To log out and force re-authentication:
+
+```bash
+conduit-mcp --url https://your-phabricator-instance.com/api/ \
+  --client-id <client-id> \
+  --logout
+```
+
+#### OAuth2 environment variables
+
+| Variable | Description |
+|---|---|
+| `PHABRICATOR_URL` | Phabricator instance URL |
+| `PHABRICATOR_OAUTH_CLIENT_ID` | OAuth2 Application Client ID |
+| `PHABRICATOR_OAUTH_CLIENT_SECRET` | OAuth2 Application Client Secret |
+
+Prefer environment variables over CLI arguments for the client secret to avoid it appearing in process listings:
+
+```bash
+export PHABRICATOR_URL="https://your-phabricator-instance.com/api/"
+export PHABRICATOR_OAUTH_CLIENT_ID="your-client-id"
+export PHABRICATOR_OAUTH_CLIENT_SECRET="your-client-secret"
+conduit-mcp --oauth-redirect-port 8889
+```
+
+---
+
+### Authentication — Conduit API Token
+
 Before running the server, you need to set up the following environment variables:
 
 ### Environment Variables

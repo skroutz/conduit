@@ -367,8 +367,11 @@ class PhabricatorClient(object):
         timeout: float = 30.0,
         max_retries: int = 3,
         enable_cache: bool = True,
+        oauth_token: bool = False,
         **kwargs,
     ):
+        self._oauth_token = oauth_token
+
         # Use enhanced client if advanced features are requested
         if (
             timeout != 30.0
@@ -402,20 +405,20 @@ class PhabricatorClient(object):
             self._is_enhanced = False
 
         # Initialize client modules (same as before)
-        self.maniphest = ManiphestClient(api_url, api_token, self.http_client)
-        self.differential = DifferentialClient(api_url, api_token, self.http_client)
-        self.diffusion = DiffusionClient(api_url, api_token, self.http_client)
-        self.project = ProjectClient(api_url, api_token, self.http_client)
-        self.user = UserClient(api_url, api_token, self.http_client)
-        self.file = FileClient(api_url, api_token, self.http_client)
-        self.conduit = ConduitClient(api_url, api_token, self.http_client)
-        self.harbormaster = HarbormasterClient(api_url, api_token, self.http_client)
-        self.paste = PasteClient(api_url, api_token, self.http_client)
-        self.phriction = PhrictionClient(api_url, api_token, self.http_client)
-        self.remarkup = RemarkupClient(api_url, api_token, self.http_client)
-        self.macro = MacroClient(api_url, api_token, self.http_client)
-        self.flag = FlagClient(api_url, api_token, self.http_client)
-        self.phid = PhidClient(api_url, api_token, self.http_client)
+        self.maniphest = ManiphestClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.differential = DifferentialClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.diffusion = DiffusionClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.project = ProjectClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.user = UserClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.file = FileClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.conduit = ConduitClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.harbormaster = HarbormasterClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.paste = PasteClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.phriction = PhrictionClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.remarkup = RemarkupClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.macro = MacroClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.flag = FlagClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.phid = PhidClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get client statistics if enhanced features are enabled."""
