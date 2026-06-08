@@ -35,6 +35,10 @@ class OAuthError(Exception):
     pass
 
 
+def _state_ok(returned, expected):
+    return bool(expected) and secrets.compare_digest(returned or "", expected)
+
+
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
     """Minimal HTTP handler that captures the authorization code from the redirect."""
 
@@ -42,7 +46,8 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
 
-        if "code" in params:
+        returned_state = params.get("state", [None])[0]
+        if "code" in params and _state_ok(returned_state, self.server.expected_state):
             self.server.auth_code = params["code"][0]
             self.server.auth_error = None
         elif "error" in params:
@@ -82,6 +87,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 class _OAuthCallbackServer(http.server.HTTPServer):
     auth_code: Optional[str] = None
     auth_error: Optional[str] = None
+    expected_state: Optional[str] = None
 
     def __init__(self, server_address, handler, af: int = socket.AF_INET):
         self.address_family = af
@@ -224,6 +230,7 @@ class OAuth2Client:
         auth_url = self._build_auth_url(redirect_uri, state)
 
         server = _OAuthCallbackServer((local_addr, port), _CallbackHandler, af=af)
+        server.expected_state = state
         server.timeout = self._timeout
 
         print("\nOpening browser for Phabricator authentication...", file=sys.stderr)

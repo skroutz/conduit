@@ -458,7 +458,7 @@ class TestOAuth2ClientSecret(unittest.TestCase):
 class TestCallbackHandler(unittest.TestCase):
     """Unit-test the HTTP callback handler in isolation."""
 
-    def _make_server_and_handler(self, path):
+    def _make_server_and_handler(self, path, expected_state="xyz"):
         """Simulate a GET request to *path* and return the server state."""
         import io
         from http.client import HTTPResponse
@@ -467,6 +467,7 @@ class TestCallbackHandler(unittest.TestCase):
         server = MagicMock()
         server.auth_code = None
         server.auth_error = None
+        server.expected_state = expected_state
 
         handler = object.__new__(
             __import__(
@@ -494,10 +495,24 @@ class TestCallbackHandler(unittest.TestCase):
 
     def test_success_path_sets_auth_code(self):
         server, _, _ = self._make_server_and_handler(
-            "/?code=abc123&state=xyz"
+            "/?code=abc123&state=xyz", expected_state="xyz"
         )
         self.assertEqual(server.auth_code, "abc123")
         self.assertIsNone(server.auth_error)
+
+    def test_mismatched_state_rejects_code(self):
+        server, _, _ = self._make_server_and_handler(
+            "/?code=abc123&state=attacker", expected_state="xyz"
+        )
+        self.assertIsNone(server.auth_code)
+        self.assertIsNotNone(server.auth_error)
+
+    def test_missing_state_rejects_code(self):
+        server, _, _ = self._make_server_and_handler(
+            "/?code=abc123", expected_state="xyz"
+        )
+        self.assertIsNone(server.auth_code)
+        self.assertIsNotNone(server.auth_error)
 
     def test_error_path_sets_auth_error(self):
         server, _, _ = self._make_server_and_handler(
@@ -512,7 +527,9 @@ class TestCallbackHandler(unittest.TestCase):
         self.assertIsNotNone(server.auth_error)
 
     def test_success_response_contains_success_message(self):
-        _, _, body = self._make_server_and_handler("/?code=tok&state=s")
+        _, _, body = self._make_server_and_handler(
+            "/?code=tok&state=s", expected_state="s"
+        )
         self.assertIn(b"Authentication successful", body)
 
     def test_error_response_contains_error_message(self):
