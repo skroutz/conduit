@@ -47,17 +47,58 @@ This will install the package in editable mode with all development dependencies
 ### Docker
 We are still working on Docker support. We estimate it will be available soon.
 
-### As HTTP/SSE Server
-Conduit can run as an HTTP/SSE server for multi-user scenarios. This mode allows multiple clients to connect simultaneously, each using their own authentication tokens.
+### As an HTTP Server
+
+Conduit can run as an HTTP server for multi-user scenarios, allowing multiple
+clients to connect simultaneously, each using their own identity. Select the
+transport with `--transport`:
+
+| Transport | Flag | Notes |
+|---|---|---|
+| stdio | `--transport stdio` (default) | Local, single user. |
+| **Streamable HTTP** | `--transport http` | Modern MCP HTTP transport. Recommended. |
+| SSE | `--transport sse` | **Deprecated.** Kept for backward compatibility. |
+
+For backward compatibility, passing `--host`/`--port` without `--transport`
+still selects the deprecated SSE transport.
+
+#### Streamable HTTP with header authentication
 
 ```bash
-conduit-mcp --host 127.0.0.1 --port 8000
+conduit-mcp --transport http --host 127.0.0.1 --port 8000
 ```
-When running as an HTTP server, authentication tokens are provided via HTTP headers instead of environment variables.
+
+The server listens at `http://<host>:<port>/mcp` and runs in **stateless** mode
+by default (toggle with `--no-stateless`). Each request supplies its own token
+via an HTTP header:
 
 ```
 X-PHABRICATOR-TOKEN: your-32-character-token-here
 ```
+
+#### Streamable HTTP with OAuth2 (MCP-spec)
+
+In this mode Conduit acts as an OAuth2 Authorization Server to the MCP client
+(the way public MCP servers like GitHub's work): the client points at the server
+URL, the user is redirected in a browser to authenticate against Phabricator, a
+token is issued, and it authenticates every subsequent request. Conduit proxies
+the flow upstream to Phabricator's OAuth server.
+
+Register an OAuth2 application in Phabricator with the **Redirect URI** set to
+`<server-url>/auth/callback` (e.g. `http://localhost:8000/auth/callback`), then:
+
+```bash
+conduit-mcp --transport http --host 127.0.0.1 --port 8000 \
+  --url https://your-phabricator-instance.com/api/ \
+  --server-url http://localhost:8000 \
+  --client-id <client-id> \
+  --client-secret <client-secret> \
+  --scope "whoami maniphest"
+```
+
+`--server-url` (or `PHABRICATOR_MCP_SERVER_URL`) is the public base URL of *this*
+MCP server, used to advertise the issuer and redirect URI. The client ID/secret
+may also be supplied via `PHABRICATOR_OAUTH_CLIENT_ID` / `PHABRICATOR_OAUTH_CLIENT_SECRET`.
 
 ## Configuration
 
