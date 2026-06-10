@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+from typing import Optional
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
@@ -54,35 +55,33 @@ class ConduitApp:
         config: PhabricatorConfig,
         use_sse: bool = False,
         oauth_client=None,
+        transport: Optional[str] = None,
+        auth_provider=None,
     ):
         self.config = config
-        self.use_sse = use_sse
+        # ``transport`` is the source of truth; ``use_sse`` is kept for
+        # backward compatibility with existing callers/tests.
+        if transport is None:
+            transport = "sse" if use_sse else "stdio"
+        self.transport = transport
+        self.use_sse = transport == "sse"
         self._oauth_client = oauth_client
-        self.mcp = FastMCP("Conduit")
+        self._auth_provider = auth_provider
+        self.mcp = FastMCP("Conduit", auth=auth_provider)
         self._client = None
 
     def get_client(self):
         """Get or create a Phabricator client instance."""
-        # In SSE mode, always create a fresh client for each request
-        # to prevent user identity confusion in multi-user environments
-        if self.use_sse:
-            headers = get_http_headers()
-            http_token = headers.get("x-phabricator-token")
+        # Streamable HTTP with MCP-spec OAuth: the Phabricator access token is
+        # carried in the authenticated request context by the OAuth proxy.
+        if self.transport == "http" and self._auth_provider is not None:
+            return self._client_from_oauth_context()
 
-            if not http_token:
-                raise ValueError("Must provide X-PHABRICATOR-TOKEN in SSE mode.")
-
-            if len(http_token) != 32:
-                raise ValueError(
-                    "PHABRICATOR_TOKEN from HTTP header must be exactly 32 characters long"
-                )
-
-            return PhabricatorClient(
-                self.config.url,
-                http_token,
-                proxy=self.config.proxy,
-                disable_cert_verify=self.config.disable_cert_verify,
-            )
+        # SSE, or HTTP without OAuth, are multi-user: always build a fresh
+        # client from the per-request X-PHABRICATOR-TOKEN header so that user
+        # identities never bleed across requests.
+        if self.transport in ("sse", "http"):
+            return self._client_from_header()
 
         # For stdio mode, use cached client (backward compatibility)
         if self._client is not None:
@@ -98,6 +97,45 @@ class ConduitApp:
             oauth_token=self._oauth_client is not None,
         )
         return self._client
+
+    def _client_from_header(self):
+        """Build a per-request client from the X-PHABRICATOR-TOKEN header."""
+        headers = get_http_headers()
+        http_token = headers.get("x-phabricator-token")
+
+        if not http_token:
+            raise ValueError("Must provide X-PHABRICATOR-TOKEN in HTTP/SSE mode.")
+
+        if len(http_token) != 32:
+            raise ValueError(
+                "PHABRICATOR_TOKEN from HTTP header must be exactly 32 characters long"
+            )
+
+        return PhabricatorClient(
+            self.config.url,
+            http_token,
+            proxy=self.config.proxy,
+            disable_cert_verify=self.config.disable_cert_verify,
+        )
+
+    def _client_from_oauth_context(self):
+        """Build a per-request client from the OAuth-authenticated token."""
+        from fastmcp.server.dependencies import get_access_token
+
+        access = get_access_token()
+        if access is None or not access.token:
+            raise ValueError(
+                "No authenticated Phabricator token in request context. "
+                "The MCP client must complete the OAuth flow first."
+            )
+
+        return PhabricatorClient(
+            self.config.url,
+            access.token,
+            proxy=self.config.proxy,
+            disable_cert_verify=self.config.disable_cert_verify,
+            oauth_token=True,
+        )
 
     def _resolve_token(self) -> str:
         """Return the API token to use, running the OAuth flow if needed."""
@@ -121,6 +159,22 @@ class ConduitApp:
             host=host,
             port=port,
             path="/sse",
+        )
+
+    def run_http_mode(self, host: str, port: int, stateless: bool = True):
+        """Run the application in streamable HTTP mode."""
+        auth_mode = "OAuth2" if self._auth_provider is not None else "header token"
+        print(
+            f"Starting in streamable HTTP mode on {host}:{port} "
+            f"(stateless={stateless}, auth={auth_mode})",
+            file=sys.stderr,
+        )
+        self.mcp.run(
+            transport="http",
+            host=host,
+            port=port,
+            path="/mcp",
+            stateless_http=stateless,
         )
 
     def run_stdio_mode(self):
@@ -156,9 +210,32 @@ def print_server_info(config):
 
 
 def should_use_sse_transport() -> bool:
-    """Check if SSE transport should be used based on command line arguments."""
+    """Check if an HTTP-family transport was requested via host/port flags."""
     sse_args = ["--host", "-H", "--port", "-p"]
     return any(arg in sys.argv for arg in sse_args)
+
+
+def resolve_transport(explicit: Optional[str]) -> str:
+    """
+    Resolve the transport to use.
+
+    An explicit --transport always wins.  Otherwise, the presence of
+    --host/--port implies the legacy SSE transport (backward compatible);
+    absent both, default to stdio.
+    """
+    if explicit:
+        return explicit
+    if should_use_sse_transport():
+        return "sse"
+    return "stdio"
+
+
+def _phabricator_base_url(raw_url: str) -> str:
+    """Strip a trailing /api or /api/ so /oauthserver/ paths resolve."""
+    base_url = raw_url.rstrip("/")
+    if base_url.endswith("/api"):
+        base_url = base_url[: -len("/api")]
+    return base_url
 
 
 def main():
@@ -167,17 +244,52 @@ def main():
         description="Conduit MCP Server for Phabricator and Phorge"
     )
     parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "http"],
+        default=None,
+        help=(
+            "Transport to use.  'stdio' (default) for local single-user; "
+            "'http' for modern streamable HTTP (multi-user); 'sse' for the "
+            "deprecated HTTP/SSE transport.  If omitted but --host/--port are "
+            "given, defaults to 'sse' for backward compatibility."
+        ),
+    )
+    parser.add_argument(
         "--host",
         "-H",
         default="127.0.0.1",
-        help="Host to bind to for SSE transport (default: 127.0.0.1)",
+        help="Host to bind to for HTTP/SSE transport (default: 127.0.0.1)",
     )
     parser.add_argument(
         "--port",
         "-p",
         type=int,
         default=8000,
-        help="Port to bind to for SSE transport (default: 8000)",
+        help="Port to bind to for HTTP/SSE transport (default: 8000)",
+    )
+    parser.add_argument(
+        "--stateless",
+        action="store_true",
+        default=True,
+        dest="stateless",
+        help="Enable stateless HTTP mode (default: enabled). Only used with --transport http.",
+    )
+    parser.add_argument(
+        "--no-stateless",
+        action="store_false",
+        dest="stateless",
+        help="Disable stateless HTTP mode (keep per-session state).",
+    )
+    parser.add_argument(
+        "--server-url",
+        default=None,
+        dest="server_url",
+        help=(
+            "Public base URL of THIS MCP server (e.g. http://localhost:8000).  "
+            "Required for OAuth2 in streamable HTTP mode so the server can "
+            "advertise its issuer and the redirect URI (<server-url>/auth/callback). "
+            "Can also be set via PHABRICATOR_MCP_SERVER_URL."
+        ),
     )
     parser.add_argument(
         "--url",
@@ -239,49 +351,89 @@ def main():
 
     args = parser.parse_args()
 
-    use_sse = should_use_sse_transport()
+    transport = resolve_transport(args.transport)
 
-    oauth_client = None
-    if args.client_id or os.getenv("PHABRICATOR_OAUTH_CLIENT_ID"):
-        if use_sse:
+    oauth_requested = bool(args.client_id or os.getenv("PHABRICATOR_OAUTH_CLIENT_ID"))
+
+    oauth_client = None  # stdio interactive OAuth client (conduit.auth.oauth)
+    auth_provider = None  # http MCP-spec OAuth proxy (conduit.auth.provider)
+
+    if oauth_requested:
+        if transport == "sse":
             parser.error(
-                "--client-id / OAuth2 mode is not supported with SSE transport. "
-                "Use PHABRICATOR_TOKEN via HTTP headers in SSE mode."
+                "--client-id / OAuth2 mode is not supported with the deprecated "
+                "SSE transport. Use PHABRICATOR_TOKEN via HTTP headers in SSE "
+                "mode, or switch to --transport http."
             )
 
-        from conduit.auth import OAuth2Client
-
-        # Resolve the Phabricator base URL (strip the /api/ path suffix that
-        # PHABRICATOR_URL typically carries so the OAuth endpoints work).
         raw_url = args.url or os.getenv("PHABRICATOR_URL", "")
         if not raw_url:
             parser.error(
                 "Phabricator URL is required.  Set --url or PHABRICATOR_URL."
             )
-        # Normalise: remove trailing /api/ or /api so OAuth paths resolve correctly.
-        base_url = raw_url.rstrip("/")
-        if base_url.endswith("/api"):
-            base_url = base_url[: -len("/api")]
+        base_url = _phabricator_base_url(raw_url)
 
         client_id = args.client_id or os.getenv("PHABRICATOR_OAUTH_CLIENT_ID")
         client_secret = args.client_secret or os.getenv("PHABRICATOR_OAUTH_CLIENT_SECRET")
-        oauth_client = OAuth2Client(
-            base_url=base_url,
-            client_id=client_id,
-            client_secret=client_secret,
-            scope=args.scope,
-            redirect_port=args.oauth_redirect_port,
-        )
 
-        if args.logout:
-            removed = oauth_client.logout()
-            if removed:
-                print("OAuth2 token removed successfully.", file=sys.stderr)
-            else:
-                print("No stored OAuth2 token found.", file=sys.stderr)
-            return
+        if transport == "http":
+            # Streamable HTTP: conduit acts as the MCP-spec OAuth server,
+            # proxying upstream to Phabricator.  No local browser flow here —
+            # the MCP client drives the redirect.
+            server_url = args.server_url or os.getenv("PHABRICATOR_MCP_SERVER_URL")
+            if not server_url:
+                parser.error(
+                    "--server-url (or PHABRICATOR_MCP_SERVER_URL) is required for "
+                    "OAuth2 in streamable HTTP mode."
+                )
 
-    if use_sse:
+            config = PhabricatorConfig(
+                require_token=False, url=args.url, client_id=client_id
+            )
+            from conduit.auth import build_phabricator_auth_provider
+
+            auth_provider = build_phabricator_auth_provider(
+                base_url=base_url,
+                api_url=config.url,
+                server_url=server_url,
+                client_id=client_id,
+                client_secret=client_secret,
+                scope=args.scope,
+                disable_cert_verify=config.disable_cert_verify,
+                proxy=config.proxy,
+            )
+            print_server_info(config)
+            print(
+                f"OAuth2 redirect URI to register in Phabricator: "
+                f"{server_url.rstrip('/')}/auth/callback",
+                file=sys.stderr,
+            )
+        else:
+            # stdio: interactive local-loopback browser flow (unchanged).
+            from conduit.auth import OAuth2Client
+
+            oauth_client = OAuth2Client(
+                base_url=base_url,
+                client_id=client_id,
+                client_secret=client_secret,
+                scope=args.scope,
+                redirect_port=args.oauth_redirect_port,
+            )
+
+            if args.logout:
+                removed = oauth_client.logout()
+                if removed:
+                    print("OAuth2 token removed successfully.", file=sys.stderr)
+                else:
+                    print("No stored OAuth2 token found.", file=sys.stderr)
+                return
+
+            config = PhabricatorConfig(
+                require_token=False, url=args.url, client_id=args.client_id
+            )
+            print_server_info(config)
+
+    elif transport in ("sse", "http"):
         config = PhabricatorConfig(require_token=False, url=args.url)
         print_server_info(config)
         print(
@@ -290,20 +442,25 @@ def main():
         )
         print("  - X-PHABRICATOR-TOKEN: <token>", file=sys.stderr)
     else:
-        require_token = oauth_client is None
+        # stdio without OAuth: a token is required.
         config = PhabricatorConfig(
-            require_token=require_token,
-            url=args.url,
-            client_id=args.client_id,
+            require_token=True, url=args.url, client_id=args.client_id
         )
         print_server_info(config)
 
     # Create and run the application
-    app = ConduitApp(config, use_sse, oauth_client=oauth_client)
+    app = ConduitApp(
+        config,
+        oauth_client=oauth_client,
+        transport=transport,
+        auth_provider=auth_provider,
+    )
     app.register_tools()
 
-    if use_sse:
+    if transport == "sse":
         app.run_sse_mode(args.host, args.port)
+    elif transport == "http":
+        app.run_http_mode(args.host, args.port, stateless=args.stateless)
     else:
         app.run_stdio_mode()
 
