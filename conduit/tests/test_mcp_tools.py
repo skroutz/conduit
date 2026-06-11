@@ -337,6 +337,92 @@ index 0000000..557db03
                 self.assertIn("diff_content", content_result)
 
 
+def _capture_registered_tools(mock_client):
+    """
+    Register tools against a mock MCP that captures each decorated function.
+
+    Returns a dict mapping tool function name -> the (decorated) callable, so
+    individual tools can be invoked directly in tests.
+    """
+    captured = {}
+
+    def tool_decorator_factory(*args, **kwargs):
+        def decorator(func):
+            captured[func.__name__] = func
+            return func
+
+        return decorator
+
+    mock_mcp = Mock()
+    mock_mcp.tool.side_effect = tool_decorator_factory
+
+    def get_client_func():
+        return mock_client
+
+    register_tools(mock_mcp, get_client_func)
+    return captured
+
+
+class TestPhaFileDownload(unittest.TestCase):
+    """Test the pha_file_download MCP tool."""
+
+    def setUp(self):
+        self.mock_client = Mock()
+        self.tools = _capture_registered_tools(self.mock_client)
+        self.assertIn("pha_file_download", self.tools)
+
+    def test_download_with_phid(self):
+        """A file PHID flows straight through to download."""
+        self.mock_client.file.resolve_file_phid.return_value = "PHID-FILE-1"
+        self.mock_client.file.get_file_info.return_value = {
+            "name": "report.pdf",
+            "size": 2048,
+            "mimeType": "application/pdf",
+        }
+        self.mock_client.file.download_file.return_value = {
+            "data_base64": "ZmlsZQ==",
+        }
+
+        result = self.tools["pha_file_download"]("PHID-FILE-1")
+
+        self.mock_client.file.resolve_file_phid.assert_called_once_with("PHID-FILE-1")
+        self.mock_client.file.download_file.assert_called_once_with(
+            file_phid="PHID-FILE-1"
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["file"]["phid"], "PHID-FILE-1")
+        self.assertEqual(result["file"]["name"], "report.pdf")
+        self.assertEqual(result["file"]["size"], 2048)
+        self.assertEqual(result["file"]["mimeType"], "application/pdf")
+        self.assertEqual(result["file"]["data_base64"], "ZmlsZQ==")
+
+    def test_download_with_monogram_resolves_phid(self):
+        """A monogram is resolved to a PHID before download."""
+        self.mock_client.file.resolve_file_phid.return_value = "PHID-FILE-9"
+        self.mock_client.file.get_file_info.return_value = {
+            "name": "a.txt",
+            "size": 4,
+            "mimeType": "text/plain",
+        }
+        self.mock_client.file.download_file.return_value = {"data_base64": "YWJjZA=="}
+
+        result = self.tools["pha_file_download"]("F9")
+
+        self.mock_client.file.resolve_file_phid.assert_called_once_with("F9")
+        self.mock_client.file.download_file.assert_called_once_with(file_phid="PHID-FILE-9")
+        self.assertEqual(result["file"]["data_base64"], "YWJjZA==")
+
+    def test_download_handles_bare_string_payload(self):
+        """A bare base64 string (not wrapped in a dict) is handled."""
+        self.mock_client.file.resolve_file_phid.return_value = "PHID-FILE-1"
+        self.mock_client.file.get_file_info.return_value = {"name": "x"}
+        self.mock_client.file.download_file.return_value = "YmFzZTY0"
+
+        result = self.tools["pha_file_download"]("PHID-FILE-1")
+
+        self.assertEqual(result["file"]["data_base64"], "YmFzZTY0")
+
+
 class TestMCPToolsMocked(unittest.TestCase):
     """Test MCP tools with mocked dependencies."""
 

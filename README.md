@@ -93,7 +93,7 @@ conduit-mcp --transport http --host 127.0.0.1 --port 8000 \
   --server-url http://localhost:8000 \
   --client-id <client-id> \
   --client-secret <client-secret> \
-  --scope "whoami maniphest"
+  --scope "maniphest file"
 ```
 
 `--server-url` (or `PHABRICATOR_MCP_SERVER_URL`) is the public base URL of *this*
@@ -122,10 +122,10 @@ uvx --from git+https://github.com/your-org/conduit conduit-mcp \
   --client-id <client-id> \
   --client-secret <client-secret> \
   --oauth-redirect-port 8889 \
-  --scope "whoami maniphest"
+  --scope "maniphest file"
 ```
 
-`--scope` is optional and defaults to `whoami maniphest`. Add further space-separated scopes if your usage requires access to other Phabricator APIs (e.g. `differential`, `diffusion`).
+`--scope` is optional and defaults to `maniphest file` (the `file` scope is required to download task attachments). Add further space-separated scopes if your usage requires access to other Phabricator APIs (e.g. `differential`, `diffusion`).
 
 On first run, a browser window opens for the user to log in. The resulting token is cached in `~/.conduit/oauth_tokens.json` (readable only by the current user) and reused on subsequent runs — no further browser prompts until the token expires.
 

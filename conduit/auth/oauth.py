@@ -130,7 +130,7 @@ class OAuth2Client:
     client_id:
         The OAuth Application client ID registered in Phabricator.
     scope:
-        Space-separated OAuth scopes to request.  Defaults to ``whoami``.
+        Space-separated OAuth scopes to request.  Defaults to ``maniphest file``.
     token_store:
         Where to persist tokens.  Defaults to ``~/.conduit/oauth_tokens.json``.
     http_client:
@@ -148,7 +148,7 @@ class OAuth2Client:
         base_url: str,
         client_id: str,
         client_secret: Optional[str] = None,
-        scope: str = "whoami maniphest",
+        scope: str = "maniphest file",
         token_store: Optional[TokenStore] = None,
         http_client: Optional[httpx.Client] = None,
         timeout: int = 300,

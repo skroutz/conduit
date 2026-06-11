@@ -123,6 +123,43 @@ class FileClient(BasePhabricatorClient):
         """
         return self._make_request("file.download", {"phid": file_phid})
 
+    def resolve_file_phid(self, identifier: str) -> str:
+        """
+        Resolve a file identifier to a file PHID.
+
+        Args:
+            identifier: A file PHID (``PHID-FILE-...``) or a monogram/ID
+                (``F123`` or ``123``).
+
+        Returns:
+            The file PHID.
+
+        Raises:
+            PhabricatorAPIError: If the identifier is empty or no matching
+                file can be found.
+        """
+        identifier = str(identifier).strip()
+        if not identifier:
+            raise PhabricatorAPIError("File identifier must not be empty")
+
+        if identifier.startswith("PHID-FILE-"):
+            return identifier
+
+        monogram = identifier[1:] if identifier[:1] in ("F", "f") else identifier
+        if not monogram.isdigit():
+            raise PhabricatorAPIError(
+                f"Invalid file identifier '{identifier}'; expected a file PHID "
+                "(PHID-FILE-...) or a monogram/ID (F123 or 123)"
+            )
+
+        result = self._make_request(
+            "file.search", {"constraints": {"ids": [int(monogram)]}}
+        )
+        data = result.get("data") or []
+        if not data:
+            raise PhabricatorAPIError(f"File {identifier} not found")
+        return data[0]["phid"]
+
     def get_file_info_legacy(
         self, file_id: int = None, file_phid: str = None
     ) -> Dict[str, Any]:

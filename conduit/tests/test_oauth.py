@@ -551,7 +551,7 @@ class TestBuildAuthUrl(unittest.TestCase):
         return OAuth2Client(
             base_url="https://phab.example.com",
             client_id="my_client",
-            scope="whoami",
+            scope="maniphest",
             token_store=TokenStore(path=Path(tmp) / "t.json"),
         )
 
@@ -568,7 +568,7 @@ class TestBuildAuthUrl(unittest.TestCase):
         self.assertEqual(params["client_id"], ["my_client"])
         self.assertEqual(params["redirect_uri"], ["http://localhost:8889"])
         self.assertEqual(params["response_type"], ["code"])
-        self.assertEqual(params["scope"], ["whoami"])
+        self.assertEqual(params["scope"], ["maniphest"])
         self.assertEqual(params["state"], ["state_val"])
 
 

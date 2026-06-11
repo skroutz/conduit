@@ -48,7 +48,7 @@ class TestPhabricatorTokenVerifier(TestCase):
 
     def _verify(self, fake_client, token="tok-123"):
         verifier = PhabricatorTokenVerifier(
-            api_url=self.API_URL, required_scopes=["whoami"]
+            api_url=self.API_URL, required_scopes=["maniphest"]
         )
         with patch(
             "conduit.auth.provider.httpx.AsyncClient", return_value=fake_client
@@ -70,7 +70,7 @@ class TestPhabricatorTokenVerifier(TestCase):
         # The upstream token must be preserved so tools can reuse it.
         self.assertEqual(result.token, "good-token")
         self.assertEqual(result.client_id, "PHID-USER-abc")
-        self.assertEqual(result.scopes, ["whoami"])
+        self.assertEqual(result.scopes, ["maniphest"])
         self.assertEqual(result.claims["username"], "alice")
         # whoami is called against the Conduit API with the token.
         url, data = fake.posted[0]
@@ -109,7 +109,7 @@ class TestBuildPhabricatorAuthProvider(TestCase):
             server_url="http://localhost:8000",
             client_id="CID",
             client_secret="SECRET",
-            scope="whoami maniphest",
+            scope="maniphest file",
         )
 
         # Upstream endpoints point at Phabricator's OAuth server.

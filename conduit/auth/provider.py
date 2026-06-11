@@ -118,7 +118,7 @@ def build_phabricator_auth_provider(
     server_url: str,
     client_id: str,
     client_secret: Optional[str] = None,
-    scope: str = "whoami maniphest",
+    scope: str = "maniphest file",
     forward_pkce: bool = False,
     disable_cert_verify: bool = False,
     proxy: Optional[str] = None,

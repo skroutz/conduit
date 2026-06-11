@@ -319,9 +319,9 @@ def main():
     )
     parser.add_argument(
         "--scope",
-        default="whoami maniphest",
+        default="maniphest file",
         help=(
-            "Space-separated OAuth2 scopes to request (default: 'whoami maniphest').  "
+            "Space-separated OAuth2 scopes to request (default: 'maniphest file').  "
             "Only used when --client-id is provided."
         ),
     )

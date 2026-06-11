@@ -919,6 +919,46 @@ def register_tools(  # noqa: C901
 
     @mcp.tool()
     @handle_api_errors
+    def pha_file_download(file_identifier: str) -> dict:
+        """
+        Download a file attachment from Phabricator.
+
+        Useful for retrieving files attached to Maniphest tasks. The content is
+        returned base64-encoded so binary files (images, PDFs, archives) are
+        preserved intact; the caller is responsible for decoding it.
+
+        Args:
+            file_identifier: File PHID (PHID-FILE-...) or monogram/ID (F123 or 123)
+
+        Returns:
+            File metadata and base64-encoded content
+        """
+        client = get_client_func()
+
+        file_phid = client.file.resolve_file_phid(file_identifier)
+        info = client.file.get_file_info(file_phid)
+        download_result = client.file.download_file(file_phid=file_phid)
+
+        # file.download returns the raw base64 payload, either as a bare string
+        # or wrapped in a dict under "data_base64" depending on the endpoint.
+        if isinstance(download_result, dict):
+            data_base64 = download_result.get("data_base64")
+        else:
+            data_base64 = download_result
+
+        return {
+            "success": True,
+            "file": {
+                "phid": file_phid,
+                "name": info.get("name"),
+                "size": info.get("size"),
+                "mimeType": info.get("mimeType"),
+                "data_base64": data_base64,
+            },
+        }
+
+    @mcp.tool()
+    @handle_api_errors
     @optimize_token_usage
     def pha_repository_history(
         repository: str,

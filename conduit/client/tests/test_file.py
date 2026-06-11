@@ -227,6 +227,63 @@ class TestFileClient:
         )
         assert result["name"] == "test.txt"
 
+    def test_resolve_file_phid_passthrough(self):
+        """A file PHID is returned unchanged without any API call."""
+        with patch.object(self.client, "_make_request") as mock_request:
+            result = self.client.resolve_file_phid("PHID-FILE-abc")
+            assert result == "PHID-FILE-abc"
+            mock_request.assert_not_called()
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_resolve_file_phid_from_monogram(self, mock_request):
+        """An F-monogram is resolved to a PHID via file.search."""
+        mock_request.return_value = {"data": [{"phid": "PHID-FILE-123"}]}
+
+        result = self.client.resolve_file_phid("F123")
+
+        mock_request.assert_called_once_with(
+            "file.search",
+            {"constraints": {"ids": [123]}},
+        )
+        assert result == "PHID-FILE-123"
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_resolve_file_phid_from_numeric_id(self, mock_request):
+        """A bare numeric ID is resolved to a PHID via file.search."""
+        mock_request.return_value = {"data": [{"phid": "PHID-FILE-123"}]}
+
+        result = self.client.resolve_file_phid("123")
+
+        mock_request.assert_called_once_with(
+            "file.search",
+            {"constraints": {"ids": [123]}},
+        )
+        assert result == "PHID-FILE-123"
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_resolve_file_phid_not_found(self, mock_request):
+        """A monogram with no matching file raises an error."""
+        mock_request.return_value = {"data": []}
+
+        with pytest.raises(PhabricatorAPIError) as exc_info:
+            self.client.resolve_file_phid("F999")
+
+        assert "F999 not found" in str(exc_info.value)
+
+    def test_resolve_file_phid_invalid(self):
+        """A non-PHID, non-numeric identifier raises an error."""
+        with pytest.raises(PhabricatorAPIError) as exc_info:
+            self.client.resolve_file_phid("not-a-file")
+
+        assert "Invalid file identifier" in str(exc_info.value)
+
+    def test_resolve_file_phid_empty(self):
+        """An empty identifier raises an error."""
+        with pytest.raises(PhabricatorAPIError) as exc_info:
+            self.client.resolve_file_phid("   ")
+
+        assert "must not be empty" in str(exc_info.value)
+
     @patch("conduit.client.base.BasePhabricatorClient._make_request")
     def test_get_file_info_legacy_with_id(self, mock_request):
         """Test legacy file info retrieval with ID."""
