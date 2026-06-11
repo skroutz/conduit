@@ -71,7 +71,8 @@ class TestFileClient:
         mock_request.assert_called_once_with(
             "file.search",
             {
-                "constraints": {"phids": ["PHID-FILE-1"]},
+                "limit": 100,
+                "constraints[phids][0]": "PHID-FILE-1",
             },
         )
         assert result["name"] == "test.txt"
@@ -243,7 +244,7 @@ class TestFileClient:
 
         mock_request.assert_called_once_with(
             "file.search",
-            {"constraints": {"ids": [123]}},
+            {"limit": 100, "constraints[ids][0]": 123},
         )
         assert result == "PHID-FILE-123"
 
@@ -256,7 +257,7 @@ class TestFileClient:
 
         mock_request.assert_called_once_with(
             "file.search",
-            {"constraints": {"ids": [123]}},
+            {"limit": 100, "constraints[ids][0]": 123},
         )
         assert result == "PHID-FILE-123"
 
