@@ -236,6 +236,19 @@ class PhrictionClient(BasePhabricatorClient):
         params = build_search_params(constraints=constraints, limit=limit)
         return self._make_request("phriction.content.search", params)
 
+    def get_document_by_slug(self, slug: str) -> Dict[str, Any]:
+        """
+        Retrieve a Phriction document by its slug/path via the legacy phriction.info
+        endpoint, which is universally supported across Phabricator versions.
+
+        Args:
+            slug: Document path, e.g. "engineering/oncall/"
+
+        Returns:
+            Document data
+        """
+        return self._make_request("phriction.info", {"slug": slug})
+
     def create_document(self, path: str, title: str, content: str) -> Dict[str, Any]:
         """
         Create a Phriction document.

@@ -4,6 +4,16 @@ from conduit.tools.handlers import handle_api_errors
 from conduit.tools.pagination import _add_pagination_metadata
 
 
+def _normalize_slug(slug: str) -> str:
+    """Strip UI prefix and ensure trailing slash."""
+    normalized = slug.lstrip("/")
+    if normalized.startswith("w/"):
+        normalized = normalized[2:]
+    if not normalized.endswith("/"):
+        normalized += "/"
+    return normalized
+
+
 def register_phriction_tools(
     mcp: FastMCP,
     get_client_func: callable,
@@ -15,17 +25,16 @@ def register_phriction_tools(
     @handle_api_errors
     def pha_wiki_search(
         query: str = "",
-        slugs: list[str] = None,
         phids: list[str] = None,
         ids: list[int] = None,
         limit: int = 50,
     ) -> dict:
         """
-        Search for Phriction wiki pages.
+        Search for Phriction wiki pages by full-text query, PHIDs, or IDs.
+        To retrieve a specific page by path, use pha_wiki_get instead.
 
         Args:
             query: Full-text search query
-            slugs: Filter by exact page paths/slugs (e.g. ["engineering/oncall/"])
             phids: Filter by page PHIDs
             ids: Filter by page IDs
             limit: Maximum number of results to return (default: 50)
@@ -38,8 +47,6 @@ def register_phriction_tools(
         constraints = {}
         if query:
             constraints["query"] = query
-        if slugs:
-            constraints["slugs"] = slugs
         if phids:
             constraints["phids"] = phids
         if ids:
@@ -68,37 +75,11 @@ def register_phriction_tools(
         """
         client = get_client_func()
 
-        # Normalize slug: strip leading "w/" prefix if present (UI uses it, API does not)
-        normalized = slug.lstrip("/")
-        if normalized.startswith("w/"):
-            normalized = normalized[2:]
-        # Ensure trailing slash as Phabricator slugs are always terminated with "/"
-        if not normalized.endswith("/"):
-            normalized += "/"
+        normalized = _normalize_slug(slug)
+        page = client.phriction.get_document_by_slug(normalized)
 
-        result = client.phriction.search_documents(
-            constraints={"slugs": [normalized]},
-            limit=1,
-        )
-
-        data = result.get("data", [])
-        if not data:
-            return {
-                "success": False,
-                "error": f"Wiki page '{slug}' not found",
-            }
-
-        page = data[0]
-        page_phid = page.get("phid")
-
-        # Fetch the current content via content search
-        content_result = client.phriction.search_content(
-            constraints={"documentPHIDs": [page_phid]},
-            limit=1,
-        )
-        content_data = content_result.get("data", [])
-        if content_data:
-            page["current_content"] = content_data[0]
+        if not page:
+            return {"success": False, "error": f"Wiki page '{slug}' not found"}
 
         return {"success": True, "page": page}
 
@@ -169,25 +150,14 @@ def register_phriction_tools(
         """
         client = get_client_func()
 
-        # Resolve the document PHID first
-        normalized = slug.lstrip("/")
-        if normalized.startswith("w/"):
-            normalized = normalized[2:]
-        if not normalized.endswith("/"):
-            normalized += "/"
+        normalized = _normalize_slug(slug)
 
-        doc_result = client.phriction.search_documents(
-            constraints={"slugs": [normalized]},
-            limit=1,
-        )
-        data = doc_result.get("data", [])
-        if not data:
-            return {
-                "success": False,
-                "error": f"Wiki page '{slug}' not found",
-            }
+        # Resolve PHID via phriction.info, then fetch content history
+        page = client.phriction.get_document_by_slug(normalized)
+        if not page:
+            return {"success": False, "error": f"Wiki page '{slug}' not found"}
 
-        page_phid = data[0].get("phid")
+        page_phid = page.get("phid")
 
         history_result = client.phriction.search_content(
             constraints={"documentPHIDs": [page_phid]},
