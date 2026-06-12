@@ -627,6 +627,8 @@ def register_tools(  # noqa: C901
     # Register remaining tools in other modules
     from conduit.tools.diffusion_tools import register_diffusion_tools
     from conduit.tools.differential_tools import register_differential_tools
+    from conduit.tools.phriction_tools import register_phriction_tools
 
     register_diffusion_tools(mcp, get_client_func, enable_type_safety)
     register_differential_tools(mcp, get_client_func, enable_type_safety)
+    register_phriction_tools(mcp, get_client_func, enable_type_safety)
