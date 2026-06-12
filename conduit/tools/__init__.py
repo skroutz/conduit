@@ -1,4 +1,3 @@
-from conduit.tools.registry import register_tools
 from conduit.tools.handlers import handle_api_errors, ErrorCode, _get_error_details
 from conduit.tools.pagination import (
     _add_pagination_metadata,
@@ -19,7 +18,6 @@ from conduit.utils import (
 )
 
 __all__ = [
-    "register_tools",
     "handle_api_errors",
     "ErrorCode",
     "_get_error_details",

@@ -1723,3 +1723,7 @@ def register_tools(  # noqa: C901
         result = _add_pagination_metadata(result, result.get("cursor"))
 
         return {"success": True, "tasks": result}
+
+    from conduit.tools.phriction_tools import register_phriction_tools
+
+    register_phriction_tools(mcp, get_client_func)
