@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 
 from conduit.client.base import BasePhabricatorClient
+from conduit.utils.parameters import build_search_params
 
 
 class ConduitClient(BasePhabricatorClient):
@@ -216,10 +217,7 @@ class PhrictionClient(BasePhabricatorClient):
         Returns:
             Document information
         """
-        params = {"limit": limit}
-        if constraints:
-            params["constraints"] = constraints
-
+        params = build_search_params(constraints=constraints, limit=limit)
         return self._make_request("phriction.document.search", params)
 
     def search_content(
@@ -235,10 +233,7 @@ class PhrictionClient(BasePhabricatorClient):
         Returns:
             Content history information
         """
-        params = {"limit": limit}
-        if constraints:
-            params["constraints"] = constraints
-
+        params = build_search_params(constraints=constraints, limit=limit)
         return self._make_request("phriction.content.search", params)
 
     def create_document(self, path: str, title: str, content: str) -> Dict[str, Any]:
