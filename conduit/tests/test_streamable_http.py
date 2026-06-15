@@ -78,9 +78,7 @@ class TestHttpOAuthAuth(TestCase):
         os.environ["PHABRICATOR_URL"] = "https://test.example.com/api/"
         self.config = PhabricatorConfig(require_token=False)
         # A sentinel auth provider is enough; get_client only checks presence.
-        self.app = ConduitApp(
-            self.config, transport="http", auth_provider=MagicMock()
-        )
+        self.app = ConduitApp(self.config, transport="http", auth_provider=MagicMock())
 
     def tearDown(self):
         super().tearDown()
@@ -89,18 +87,14 @@ class TestHttpOAuthAuth(TestCase):
     def test_token_from_context_builds_oauth_client(self):
         access = MagicMock()
         access.token = "oauth-access-token"
-        with patch(
-            "fastmcp.server.dependencies.get_access_token", return_value=access
-        ):
+        with patch("fastmcp.server.dependencies.get_access_token", return_value=access):
             client = self.app.get_client()
         self.assertEqual(client.user.api_token, "oauth-access-token")
         # OAuth tokens are sent as access_token, not api.token.
         self.assertTrue(client.user.oauth_token)
 
     def test_missing_context_token_raises(self):
-        with patch(
-            "fastmcp.server.dependencies.get_access_token", return_value=None
-        ):
+        with patch("fastmcp.server.dependencies.get_access_token", return_value=None):
             with self.assertRaises(ValueError) as cm:
                 self.app.get_client()
         self.assertIn("OAuth flow", str(cm.exception))

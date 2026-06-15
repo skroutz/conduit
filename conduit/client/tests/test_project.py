@@ -1,8 +1,12 @@
 from unittest import TestCase
 
+import pytest
+
 from conduit.client.base import PhabricatorAPIError
 from conduit.client.project import ProjectClient
 from conduit.conduit import get_config
+
+pytestmark = pytest.mark.integration
 
 
 class TestProjectClient(TestCase):

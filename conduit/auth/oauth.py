@@ -15,12 +15,9 @@ available port and pass "http://localhost:<port>" as the redirect_uri.
 
 import hashlib
 import http.server
-import json
-import os
 import secrets
 import socket
 import sys
-import threading
 import time
 import urllib.parse
 import webbrowser
@@ -77,9 +74,7 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
                 f"<p>{self.server.auth_error}</p>"
                 "<p>You can close this tab and return to your terminal.</p>"
             )
-        return (
-            f"<!DOCTYPE html><html><body>{message}</body></html>"
-        ).encode("utf-8")
+        return (f"<!DOCTYPE html><html><body>{message}</body></html>").encode("utf-8")
 
     def log_message(self, format, *args):  # noqa: A002 — shadow stdlib intentional
         pass  # suppress default request logging to keep stdout clean
@@ -102,9 +97,7 @@ def _resolve_localhost() -> tuple:
     usually 127.0.0.1 (IPv4).  We follow getaddrinfo so the listener binds
     to the same address the browser will connect to.
     """
-    infos = socket.getaddrinfo(
-        "localhost", None, socket.AF_UNSPEC, socket.SOCK_STREAM
-    )
+    infos = socket.getaddrinfo("localhost", None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     if infos:
         af, _, _, _, addr = infos[0]
         return addr[0], af
@@ -141,7 +134,7 @@ class OAuth2Client:
     """
 
     AUTH_PATH = "/oauthserver/auth/"
-    TOKEN_PATH = "/oauthserver/token/"
+    TOKEN_PATH = "/oauthserver/token/"  # nosec B105 - URL path, not a secret
 
     def __init__(
         self,
@@ -235,7 +228,10 @@ class OAuth2Client:
         server.timeout = self._timeout
 
         print("\nOpening browser for Phabricator authentication...", file=sys.stderr)
-        print(f"If the browser does not open automatically, visit:\n  {auth_url}\n", file=sys.stderr)
+        print(
+            f"If the browser does not open automatically, visit:\n  {auth_url}\n",
+            file=sys.stderr,
+        )
 
         webbrowser.open(auth_url)
 
@@ -326,9 +322,7 @@ class OAuth2Client:
             )
 
         if "access_token" not in data:
-            raise OAuthError(
-                "Token endpoint response missing 'access_token'"
-            )
+            raise OAuthError("Token endpoint response missing 'access_token'")
 
         return data
 

@@ -22,6 +22,7 @@ Endpoints (relative to the Phabricator base URL) mirror
   Token:          /oauthserver/token/
 """
 
+import logging
 from typing import List, Optional
 
 import httpx
@@ -30,9 +31,11 @@ from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
 
+logger = logging.getLogger(__name__)
+
 # Phabricator OAuth endpoint paths (kept in sync with conduit.auth.oauth).
 AUTH_PATH = "/oauthserver/auth/"
-TOKEN_PATH = "/oauthserver/token/"
+TOKEN_PATH = "/oauthserver/token/"  # nosec B105 - URL path, not a secret
 
 
 class PhabricatorTokenVerifier(TokenVerifier):
@@ -74,23 +77,40 @@ class PhabricatorTokenVerifier(TokenVerifier):
                 follow_redirects=True,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             ) as client:
+                whoami_url = self.api_url + "user.whoami"
                 response = await client.post(
-                    self.api_url + "user.whoami",
+                    whoami_url,
                     data={"access_token": token},
                 )
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            # Swallowed so an unreachable/misconfigured upstream surfaces as a
+            # clean 401 rather than a 500 — but log it (token never logged), as
+            # this masks the most common misconfigurations (wrong PHABRICATOR_URL
+            # missing the /api/ suffix, or an untrusted TLS CA).
+            logger.debug("Token verification request to %s failed: %s", whoami_url, exc)
             return None
 
         if response.status_code != 200:
+            logger.debug(
+                "Token verification got HTTP %s from %s (expected 200)",
+                response.status_code,
+                whoami_url,
+            )
             return None
 
         try:
             data = response.json()
         except ValueError:
+            logger.debug(
+                "Token verification response from %s was not valid JSON", whoami_url
+            )
             return None
 
         # Conduit signals auth/permission failures in the body, not the status.
         if data.get("error_code"):
+            logger.debug(
+                "Token verification rejected by Phabricator: %s", data.get("error_code")
+            )
             return None
 
         result = data.get("result")

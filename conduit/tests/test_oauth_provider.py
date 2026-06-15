@@ -50,9 +50,7 @@ class TestPhabricatorTokenVerifier(TestCase):
         verifier = PhabricatorTokenVerifier(
             api_url=self.API_URL, required_scopes=["maniphest"]
         )
-        with patch(
-            "conduit.auth.provider.httpx.AsyncClient", return_value=fake_client
-        ):
+        with patch("conduit.auth.provider.httpx.AsyncClient", return_value=fake_client):
             return asyncio.run(verifier.verify_token(token))
 
     def test_valid_token_returns_access_token(self):

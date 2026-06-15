@@ -1,8 +1,12 @@
 from unittest import TestCase
 
+import pytest
+
 from conduit.client.types import UserInfo, UserSearchAttachments, UserSearchConstraints
 from conduit.client.user import UserClient
 from conduit.conduit import get_config
+
+pytestmark = pytest.mark.integration
 
 
 class TestUserClient(TestCase):

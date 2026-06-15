@@ -334,7 +334,7 @@ class TestPhrictionClient:
         mock_request.assert_called_once_with(
             "phriction.content.search",
             {
-                "constraints": {"documentPHID": "PHID-WIKI-doc1"},
+                "constraints[documentPHID]": "PHID-WIKI-doc1",
                 "limit": 100,
             },
         )

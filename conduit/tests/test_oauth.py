@@ -1,4 +1,3 @@
-import json
 import os
 import stat
 import tempfile
@@ -120,7 +119,9 @@ class TestOAuth2ClientCaching(unittest.TestCase):
             store, token="old_token", expires_at=past, refresh="refresh_tok"
         )
 
-        with patch.object(client, "_refresh", return_value="refreshed_token") as mock_ref:
+        with patch.object(
+            client, "_refresh", return_value="refreshed_token"
+        ) as mock_ref:
             with patch.object(client, "_authorize_interactive") as mock_auth:
                 result = client.get_token()
 
@@ -244,9 +245,7 @@ class TestOAuth2TokenExchange(unittest.TestCase):
 
     def test_expires_at_computed_from_expires_in(self):
         oa = self._client()
-        oa._http_client = self._mock_http(
-            {"access_token": "t", "expires_in": 1800}
-        )
+        oa._http_client = self._mock_http({"access_token": "t", "expires_in": 1800})
         before = int(time.time())
         oa._exchange_code("c", "http://localhost:1")
         after = int(time.time())
@@ -263,7 +262,7 @@ class TestOAuth2TokenExchange(unittest.TestCase):
                 "expires_in": 3600,
             }
         )
-        result = oa._exchange_code("c", "http://localhost:1")
+        oa._exchange_code("c", "http://localhost:1")
         stored = oa._store.load(oa._store_key)
         self.assertEqual(stored["refresh_token"], "ref_tok")
 
@@ -461,8 +460,6 @@ class TestCallbackHandler(unittest.TestCase):
     def _make_server_and_handler(self, path, expected_state=None):
         """Simulate a GET request to *path* and return the server state."""
         import io
-        from http.client import HTTPResponse
-        from unittest.mock import patch
 
         server = MagicMock()
         server.auth_code = None
@@ -513,7 +510,9 @@ class TestCallbackHandler(unittest.TestCase):
         self.assertIsNotNone(server.auth_error)
 
     def test_success_response_contains_success_message(self):
-        _, _, body = self._make_server_and_handler("/?code=tok&state=s", expected_state="s")
+        _, _, body = self._make_server_and_handler(
+            "/?code=tok&state=s", expected_state="s"
+        )
         self.assertIn(b"Authentication successful", body)
 
     def test_error_response_contains_error_message(self):
@@ -583,7 +582,6 @@ class TestBaseUrlNormalisation(unittest.TestCase):
         os.environ.pop("PHABRICATOR_OAUTH_CLIENT_ID", None)
 
     def _run_main_with_args(self, argv):
-        import sys
         from unittest.mock import patch
         from conduit.auth.oauth import OAuth2Client
 
@@ -601,6 +599,7 @@ class TestBaseUrlNormalisation(unittest.TestCase):
                 with patch("conduit.conduit.ConduitApp.run_stdio_mode"):
                     try:
                         from conduit.conduit import main
+
                         main()
                     except SystemExit:
                         pass
@@ -608,23 +607,35 @@ class TestBaseUrlNormalisation(unittest.TestCase):
         return captured
 
     def test_api_suffix_stripped_from_url(self):
-        captured = self._run_main_with_args([
-            "conduit-mcp",
-            "--url", "https://phab.example.com/api/",
-            "--client-id", "cid",
-            "--client-secret", "sec",
-            "--oauth-redirect-port", "8889",
-        ])
+        captured = self._run_main_with_args(
+            [
+                "conduit-mcp",
+                "--url",
+                "https://phab.example.com/api/",
+                "--client-id",
+                "cid",
+                "--client-secret",
+                "sec",
+                "--oauth-redirect-port",
+                "8889",
+            ]
+        )
         self.assertEqual(captured.get("base_url"), "https://phab.example.com")
 
     def test_url_without_api_suffix_unchanged(self):
-        captured = self._run_main_with_args([
-            "conduit-mcp",
-            "--url", "https://phab.example.com/",
-            "--client-id", "cid",
-            "--client-secret", "sec",
-            "--oauth-redirect-port", "8889",
-        ])
+        captured = self._run_main_with_args(
+            [
+                "conduit-mcp",
+                "--url",
+                "https://phab.example.com/",
+                "--client-id",
+                "cid",
+                "--client-secret",
+                "sec",
+                "--oauth-redirect-port",
+                "8889",
+            ]
+        )
         self.assertEqual(captured.get("base_url"), "https://phab.example.com")
 
 

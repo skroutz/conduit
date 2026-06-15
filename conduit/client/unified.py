@@ -95,7 +95,10 @@ class RequestCache:
             self._canonicalize(extra),
         ]
         key_data = "|".join(key_parts)
-        return hashlib.md5(key_data.encode()).hexdigest()
+        # Not used for security: this only derives an in-memory cache key, so a
+        # fast non-cryptographic digest is appropriate. usedforsecurity=False
+        # documents that intent and satisfies static analysis (bandit B324).
+        return hashlib.md5(key_data.encode(), usedforsecurity=False).hexdigest()
 
     def get(self, key: str) -> Optional[Any]:
         """Get cached response if still valid."""
@@ -405,20 +408,48 @@ class PhabricatorClient(object):
             self._is_enhanced = False
 
         # Initialize client modules (same as before)
-        self.maniphest = ManiphestClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.differential = DifferentialClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.diffusion = DiffusionClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.project = ProjectClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.user = UserClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.file = FileClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.conduit = ConduitClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.harbormaster = HarbormasterClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.paste = PasteClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.phriction = PhrictionClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.remarkup = RemarkupClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.macro = MacroClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.flag = FlagClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
-        self.phid = PhidClient(api_url, api_token, self.http_client, oauth_token=oauth_token)
+        self.maniphest = ManiphestClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.differential = DifferentialClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.diffusion = DiffusionClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.project = ProjectClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.user = UserClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.file = FileClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.conduit = ConduitClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.harbormaster = HarbormasterClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.paste = PasteClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.phriction = PhrictionClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.remarkup = RemarkupClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.macro = MacroClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.flag = FlagClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.phid = PhidClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
 
     def get_stats(self) -> Dict[str, Any]:
         """Get client statistics if enhanced features are enabled."""

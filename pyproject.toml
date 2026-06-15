@@ -7,7 +7,7 @@ name = "conduit-mcp"
 version = "0.2.2"
 description = "The MCP Server for Phabricator and Phorge"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
     {name = "mcpnow.io", email = "support@mcpnow.io"}
 ]
@@ -19,8 +19,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -42,14 +40,16 @@ Wiki = "https://github.com/mcpnow-io/conduit/wiki"
 
 [project.optional-dependencies]
 dev = [
-    "flake8",
+    "ruff==0.12.10",
+    "bandit==1.8.6",
     "pre-commit",
     "pytest",
     "pytest-cov",
     "setuptools",
 ]
 test = [
-    "flake8",
+    "ruff==0.12.10",
+    "bandit==1.8.6",
     "pre-commit",
     "pytest",
     "pytest-cov",
@@ -61,3 +61,8 @@ conduit-mcp = "conduit.conduit:main"
 
 [tool.setuptools.packages.find]
 exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: requires a live Phabricator/Phorge instance (deselect with '-m \"not integration\"')",
+]
