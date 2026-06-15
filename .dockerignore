@@ -1,0 +1,56 @@
+# Keep the build context minimal and prevent local state / secrets from
+# leaking into image layers. Everything here is excluded from `docker build`.
+
+# Version control & CI
+.git
+.gitignore
+.github
+.pre-commit-config.yaml
+
+# Virtual environments
+.venv
+venv
+ENV
+env
+
+# Python caches / build artifacts
+**/__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+build
+dist
+.eggs
+
+# Test & coverage state (the heavy Phorge fixture lives under tests/ and is
+# never needed by the runtime image)
+tests
+conduit/**/tests
+.pytest_cache
+.coverage
+.coverage.*
+coverage.xml
+htmlcov
+.tox
+.mypy_cache
+
+# Secrets & local config
+*.env
+.env
+*.local
+.fabistrano
+
+# Logs & scratch
+*.log
+bandit_scan.log
+scripts
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+
+# Docker / compose files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml

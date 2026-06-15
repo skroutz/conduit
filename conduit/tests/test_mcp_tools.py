@@ -10,9 +10,13 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
+import pytest
+
 from conduit.main_tools import register_tools
 from conduit.client.unified import PhabricatorClient
 from conduit.conduit import get_config
+
+pytestmark = pytest.mark.integration
 
 
 class TestMCPTools(unittest.TestCase):
@@ -409,7 +413,9 @@ class TestPhaFileDownload(unittest.TestCase):
         result = self.tools["pha_file_download"]("F9")
 
         self.mock_client.file.resolve_file_phid.assert_called_once_with("F9")
-        self.mock_client.file.download_file.assert_called_once_with(file_phid="PHID-FILE-9")
+        self.mock_client.file.download_file.assert_called_once_with(
+            file_phid="PHID-FILE-9"
+        )
         self.assertEqual(result["file"]["data_base64"], "YWJjZA==")
 
     def test_download_handles_bare_string_payload(self):

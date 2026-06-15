@@ -11,8 +11,12 @@ This module tests the Workboard functionality that currently works:
 import time
 import unittest
 
+import pytest
+
 from conduit.client.project import ProjectClient
 from conduit.client.maniphest import ManiphestClient
+
+pytestmark = pytest.mark.integration
 
 
 class TestWorkboardExistingFeatures(unittest.TestCase):

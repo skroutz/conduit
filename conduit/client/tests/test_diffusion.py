@@ -4,10 +4,14 @@ import tempfile
 import time
 from unittest import TestCase
 
+import pytest
+
 from conduit.client.base import PhabricatorAPIError
 from conduit.client.differential import DifferentialClient
 from conduit.client.diffusion import DiffusionClient
 from conduit.conduit import get_config
+
+pytestmark = pytest.mark.integration
 
 
 class TestDiffusionClient(TestCase):

@@ -197,7 +197,10 @@ def print_server_info(config):
     print(f"Phabricator URL: {config.url}", file=sys.stderr)
     if config.client_id:
         print(f"OAuth2 client ID: {config.client_id}", file=sys.stderr)
-        print(f"Token configured: {'Yes (OAuth2)' if config.token else 'OAuth2 flow'}", file=sys.stderr)
+        print(
+            f"Token configured: {'Yes (OAuth2)' if config.token else 'OAuth2 flow'}",
+            file=sys.stderr,
+        )
     else:
         print(f"Token configured: {'Yes' if config.token else 'No'}", file=sys.stderr)
     print(f"Proxy configured: {'Yes' if config.proxy else 'No'}", file=sys.stderr)
@@ -319,9 +322,10 @@ def main():
     )
     parser.add_argument(
         "--scope",
-        default="maniphest file",
+        default=os.getenv("PHABRICATOR_OAUTH_SCOPE", "maniphest file"),
         help=(
             "Space-separated OAuth2 scopes to request (default: 'maniphest file').  "
+            "Can also be set via PHABRICATOR_OAUTH_SCOPE.  "
             "Only used when --client-id is provided."
         ),
     )
@@ -368,13 +372,13 @@ def main():
 
         raw_url = args.url or os.getenv("PHABRICATOR_URL", "")
         if not raw_url:
-            parser.error(
-                "Phabricator URL is required.  Set --url or PHABRICATOR_URL."
-            )
+            parser.error("Phabricator URL is required.  Set --url or PHABRICATOR_URL.")
         base_url = _phabricator_base_url(raw_url)
 
         client_id = args.client_id or os.getenv("PHABRICATOR_OAUTH_CLIENT_ID")
-        client_secret = args.client_secret or os.getenv("PHABRICATOR_OAUTH_CLIENT_SECRET")
+        client_secret = args.client_secret or os.getenv(
+            "PHABRICATOR_OAUTH_CLIENT_SECRET"
+        )
 
         if transport == "http":
             # Streamable HTTP: conduit acts as the MCP-spec OAuth server,

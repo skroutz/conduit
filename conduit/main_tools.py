@@ -808,7 +808,7 @@ def register_tools(  # noqa: C901
                     constraints={"shortNames": [repository_identifier]},
                     limit=1,
                 )
-            except Exception:
+            except Exception:  # nosec B110 - intentional fallback to next lookup strategy
                 # shortNames constraint might fail, continue to next strategy
                 pass
 

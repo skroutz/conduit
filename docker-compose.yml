@@ -1,0 +1,69 @@
+# Hardened Compose definition for the Conduit MCP server.
+#
+#   docker compose up
+#
+# Pulls the published multi-arch image from GHCR. To run a locally built image
+# instead, comment out `image:` and uncomment `build: .`.
+#
+# Configuration is supplied via a local `.env` file (never commit it).
+#
+# Two HTTP modes:
+#
+#   1. Header-token mode (default) — no server-side secret. The per-request
+#      token is sent by the client via the X-PHABRICATOR-TOKEN header, so the
+#      .env file only needs the instance URL:
+#
+#        PHABRICATOR_URL=https://your-phabricator-instance.com/api/
+#
+#   2. OAuth2 proxy mode — Conduit acts as the OAuth authorization server.
+#      Set the OAuth credentials in .env; just setting the client ID switches
+#      the server into OAuth mode automatically (no command override needed):
+#
+#        PHABRICATOR_URL=https://your-phabricator-instance.com/api/
+#        PHABRICATOR_OAUTH_CLIENT_ID=<client-id>
+#        PHABRICATOR_OAUTH_CLIENT_SECRET=<client-secret>
+#        # Public base URL of THIS server. REQUIRED in OAuth mode — used to
+#        # advertise the issuer and the <server-url>/auth/callback redirect URI
+#        # you register in Phabricator. Not a secret, but the server exits
+#        # without it.
+#        PHABRICATOR_MCP_SERVER_URL=https://conduit.example.com
+#        # Optional: space-separated scopes (default: "maniphest file").
+#        PHABRICATOR_OAUTH_SCOPE=maniphest file differential
+#        # OAuth mode persists proxy state to disk; redirect it onto the tmpfs
+#        # mounted below so the read-only root filesystem is not violated.
+#        FASTMCP_HOME=/tmp/fastmcp
+#
+#      Note: with env_file the secret is not exposed on the process table, but
+#      it IS readable via `docker inspect`; restrict access to the Docker socket.
+#
+#      Corporate TLS / custom CA: if Phabricator is behind a TLS-intercepting
+#      proxy, uncomment the volumes + SSL_CERT_FILE lines below to trust your CA
+#      bundle (preferred over disabling verification).
+
+services:
+  conduit:
+    image: ghcr.io/skroutz/conduit:latest
+    # build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    # --- Security hardening (defence in depth) ---
+    read_only: true                 # immutable root filesystem
+    cap_drop:
+      - ALL                         # drop all Linux capabilities
+    security_opt:
+      - no-new-privileges:true      # block setuid privilege escalation
+    # The image already runs as the non-root distroless user (UID 65532);
+    # pinned here so the posture is explicit and survives image changes.
+    user: "65532:65532"
+    # Writable in-memory scratch space. Required by OAuth2 proxy mode (set
+    # FASTMCP_HOME=/tmp/fastmcp in .env); harmless for header-token mode.
+    tmpfs:
+      - /tmp
+    # Corporate TLS / custom CA — uncomment to trust a private CA bundle:
+    # volumes:
+    #   - /path/to/corporate-ca.pem:/etc/ssl/certs/corporate-ca.pem:ro
+    # environment:
+    #   SSL_CERT_FILE: /etc/ssl/certs/corporate-ca.pem

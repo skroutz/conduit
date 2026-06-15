@@ -1,34 +1,88 @@
 name: CI
-on: [push, workflow_dispatch]
+
+# Fast, dependency-free checks on every PR and on merge to main.
+# Heavy live-integration tests (which need a real Phabricator/Phorge instance)
+# are excluded here via `-m "not integration"`; run those locally per AGENTS.md.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: CI only needs to read the repository.
 permissions:
   contents: read
 
+# Cancel superseded runs for the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ci:
-    strategy:
-      matrix:
-        os: [ubuntu-24.04, ubuntu-22.04]
-    runs-on: ${{matrix.os}}
+  lint:
+    name: Lint & security scan
+    runs-on: ubuntu-24.04
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-      - name: Set up Docker
-        uses: docker/setup-docker-action@v4
-      - name: Build and run Image
-        run: |
-          cd tests/
-          docker build -t phorge_debug .
-          docker run -d -p 8080:80 --rm --name phorge_debug phorge_debug
-      - name: Get API Token
-        run: |
-          PHABRICATOR_TOKEN=$(docker exec phorge_debug /usr/local/bin/get-api-token.sh)
-          echo "PHABRICATOR_TOKEN=$PHABRICATOR_TOKEN" >> "$GITHUB_ENV"
-          echo "PHABRICATOR_URL=http://127.0.0.1:8080/api/" >> "$GITHUB_ENV"
-      - name: unittest
-        run: |
-          sudo apt install python3 python3-venv -y
-          python3 -m venv ci
-          source ci/bin/activate
-          pip install .[dev]
-          pre-commit run -a
-          coverage run -m pytest -s
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install tooling
+        run: python -m pip install .[dev]
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Bandit (production code, blocking)
+        # Scan the shipped package strictly; test code legitimately uses asserts,
+        # dummy tokens and subprocess for the Phorge fixtures, so it is excluded.
+        run: bandit -r conduit -c .bandit_scan.cfg -x '*/tests/*'
+
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package + test deps
+        run: python -m pip install .[test]
+      - name: Run unit tests
+        run: pytest -m "not integration" --cov=conduit --cov-report=term-missing
+
+  docker-build:
+    name: Docker build (smoke)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Build image (no push)
+        # Keeps the Dockerfile honest on every PR. amd64 only for speed; the
+        # release workflow builds the full multi-arch set.
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: conduit-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test (--help runs)
+        run: docker run --rm conduit-mcp:ci --help

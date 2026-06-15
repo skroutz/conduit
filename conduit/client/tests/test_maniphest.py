@@ -1,5 +1,7 @@
 from unittest import TestCase
 
+import pytest
+
 from conduit.client.base import PhabricatorAPIError
 from conduit.client.maniphest import ManiphestClient
 from conduit.client.types import (
@@ -22,6 +24,8 @@ from conduit.client.types import (
 )
 from conduit.client.user import UserClient
 from conduit.conduit import get_config
+
+pytestmark = pytest.mark.integration
 
 
 class TestManiphestClient(TestCase):
