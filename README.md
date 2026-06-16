@@ -218,6 +218,44 @@ conduit-mcp --transport http --host 127.0.0.1 --port 8000 \
 MCP server, used to advertise the issuer and redirect URI. The client ID/secret
 may also be supplied via `PHABRICATOR_OAUTH_CLIENT_ID` / `PHABRICATOR_OAUTH_CLIENT_SECRET`.
 
+#### Deploying behind a reverse proxy on a subpath
+
+If you front Conduit with a reverse proxy and serve it from a **subpath** rather
+than a dedicated host — e.g. `https://phabricator.example.com/ai/` — set
+`--server-url`/`PHABRICATOR_MCP_SERVER_URL` to that full subpath URL
+(`https://phabricator.example.com/ai`). The MCP endpoint is then at
+`https://phabricator.example.com/ai/mcp`.
+
+There is one routing subtlety that is easy to miss. The OAuth2 discovery
+documents that MCP clients fetch (per RFC 9728 / RFC 8414) live at the **domain
+root**, *not* under your subpath — the client derives them by inserting the
+`.well-known/...` segment after the host and appending the resource/issuer path.
+So in addition to forwarding `^/ai/` to the container, your proxy **must also
+route these root-level paths** to it:
+
+| Client requests (domain root) | Proxy to container path |
+|---|---|
+| `/.well-known/oauth-protected-resource/ai/mcp` | `/ai/.well-known/oauth-protected-resource/ai/mcp` |
+| `/.well-known/oauth-authorization-server/ai` | `/ai/.well-known/oauth-authorization-server` |
+
+Example nginx rules (alongside your existing `location /ai/` block):
+
+```nginx
+location = /.well-known/oauth-protected-resource/ai/mcp {
+    proxy_pass http://conduit-upstream/ai/.well-known/oauth-protected-resource/ai/mcp;
+}
+location = /.well-known/oauth-authorization-server/ai {
+    proxy_pass http://conduit-upstream/ai/.well-known/oauth-authorization-server;
+}
+```
+
+If these root paths are *not* routed to Conduit, the client's discovery requests
+fall through to the host application instead, typically returning an HTML login
+or redirect page. The symptom is an MCP client that fails to connect with a JSON
+parse error such as `Invalid registration response: ... Invalid JSON: expected
+value at line 1 column 1` (the client received HTML where it expected the OAuth
+metadata or registration JSON).
+
 ## Configuration
 
 ### Authentication — OAuth2 (Recommended for shared deployments)
