@@ -321,6 +321,31 @@ class TestPhrictionClient:
         )
 
     @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_search_documents_with_subtree_and_attachments(self, mock_request):
+        """Test searching a page subtree with content attached."""
+        mock_request.return_value = {"data": []}
+
+        self.client.search_documents(
+            constraints={"ancestorPaths": ["engineering/"], "statuses": ["active"]},
+            attachments={"content": True},
+            order="hierarchy",
+            after="cursor-1",
+            limit=25,
+        )
+
+        mock_request.assert_called_once_with(
+            "phriction.document.search",
+            {
+                "constraints[ancestorPaths][0]": "engineering/",
+                "constraints[statuses][0]": "active",
+                "attachments[content]": True,
+                "order": "hierarchy",
+                "after": "cursor-1",
+                "limit": 25,
+            },
+        )
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
     def test_search_content(self, mock_request):
         """Test searching content history."""
         mock_request.return_value = {

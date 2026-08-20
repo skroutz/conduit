@@ -205,19 +205,33 @@ class PhrictionClient(BasePhabricatorClient):
     """
 
     def search_documents(
-        self, constraints: Dict[str, Any] = None, limit: int = 100
+        self,
+        constraints: Dict[str, Any] = None,
+        attachments: Dict[str, Any] = None,
+        order: str = None,
+        after: str = None,
+        limit: int = 100,
     ) -> Dict[str, Any]:
         """
         Read information about Phriction documents.
 
         Args:
             constraints: Search constraints
+            attachments: Attachments to include (content, subscribers, projects)
+            order: Result ordering ("newest", "oldest", "relevance", "hierarchy")
+            after: Cursor for the next page of results
             limit: Maximum number of results to return
 
         Returns:
             Document information
         """
-        params = build_search_params(constraints=constraints, limit=limit)
+        params = build_search_params(
+            constraints=constraints,
+            attachments=attachments,
+            order=order,
+            after=after,
+            limit=limit,
+        )
         return self._make_request("phriction.document.search", params)
 
     def search_content(
