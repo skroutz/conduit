@@ -1,6 +1,7 @@
 from fastmcp import FastMCP
 
 from conduit.tools.handlers import handle_api_errors
+from conduit.tools.optimization import optimize_token_usage
 from conduit.tools.pagination import _add_pagination_metadata
 
 
@@ -23,20 +24,44 @@ def register_phriction_tools(
 
     @mcp.tool()
     @handle_api_errors
+    @optimize_token_usage
     def pha_wiki_search(
         query: str = "",
         phids: list[str] = None,
         ids: list[int] = None,
+        paths: list[str] = None,
+        parent_paths: list[str] = None,
+        ancestor_paths: list[str] = None,
+        statuses: list[str] = None,
+        subscribers: list[str] = None,
+        projects: list[str] = None,
+        order: str = "",
+        include_content: bool = False,
+        after: str = "",
         limit: int = 50,
     ) -> dict:
         """
-        Search for Phriction wiki pages by full-text query, PHIDs, or IDs.
-        To retrieve a specific page by path, use pha_wiki_get instead.
+        Search for Phriction wiki pages by full-text query, location in the page
+        tree, or metadata. To retrieve a single page by path, use pha_wiki_get.
+
+        Use ancestor_paths to read a whole documentation subtree (e.g. every page
+        under "engineering/") and parent_paths with order="hierarchy" to list the
+        direct children of one page.
 
         Args:
             query: Full-text search query
             phids: Filter by page PHIDs
             ids: Filter by page IDs
+            paths: Filter by exact page paths, e.g. ["engineering/oncall/"]
+            parent_paths: Filter by direct-parent paths (immediate children only)
+            ancestor_paths: Filter by ancestor paths (whole subtree)
+            statuses: Filter by status ("active", "deleted", "moved", "stub")
+            subscribers: Filter by subscriber usernames or PHIDs
+            projects: Filter by project names or PHIDs
+            order: Result ordering ("newest", "oldest", "relevance", "hierarchy")
+            include_content: Return page content inline, avoiding a pha_wiki_get
+                per result. Costs tokens -- keep limit low when enabling it.
+            after: Cursor from a previous response, to fetch the next page
             limit: Maximum number of results to return (default: 50)
 
         Returns:
@@ -51,9 +76,24 @@ def register_phriction_tools(
             constraints["phids"] = phids
         if ids:
             constraints["ids"] = ids
+        if paths:
+            constraints["paths"] = [_normalize_slug(p) for p in paths]
+        if parent_paths:
+            constraints["parentPaths"] = [_normalize_slug(p) for p in parent_paths]
+        if ancestor_paths:
+            constraints["ancestorPaths"] = [_normalize_slug(p) for p in ancestor_paths]
+        if statuses:
+            constraints["statuses"] = statuses
+        if subscribers:
+            constraints["subscribers"] = subscribers
+        if projects:
+            constraints["projects"] = projects
 
         result = client.phriction.search_documents(
             constraints=constraints if constraints else None,
+            attachments={"content": True} if include_content else None,
+            order=order or None,
+            after=after or None,
             limit=limit,
         )
 
