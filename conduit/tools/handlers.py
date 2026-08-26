@@ -39,6 +39,8 @@ def _get_error_details(error: Exception) -> Dict[str, Any]:
         ErrorCode.VALIDATION_ERROR: "Provide valid parameters according to the API documentation",
         ErrorCode.RATE_LIMIT_ERROR: "Wait a few minutes before making additional requests",
         ErrorCode.NOT_FOUND: "Verify the resource identifier and check if it exists",
+        ErrorCode.RESPONSE_TOO_LARGE: "The upstream response exceeded the size limit. Narrow the request -- a smaller limit, more specific filters, or fetching a single object instead of a bulk list -- and try again",
+        ErrorCode.UNSAFE_RESPONSE_ENCODING: "The upstream server returned a compressed or otherwise encoded response, which Conduit refuses to decode. This is unexpected for a standard Phabricator instance -- check for a misconfigured proxy or gateway in front of it",
     }
 
     suggestion = suggestions.get(

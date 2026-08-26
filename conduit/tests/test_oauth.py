@@ -368,44 +368,42 @@ class TestBasePhabricatorClientOAuthFlag(unittest.TestCase):
     """Verify _make_request uses the correct auth parameter name."""
 
     def _make_base_client(self, oauth_token: bool):
+        import httpx
+
         from conduit.client.base import BasePhabricatorClient
 
         class _Concrete(BasePhabricatorClient):
             pass
 
-        mock_http = MagicMock()
-        response = MagicMock()
-        response.json.return_value = {"result": {"ok": True}, "error_code": None}
-        response.raise_for_status.return_value = None
-        mock_http.post.return_value = response
+        captured = {}
+
+        def handler(request):
+            captured["body"] = request.read().decode()
+            return httpx.Response(200, json={"result": {"ok": True}})
+
+        http_client = httpx.Client(transport=httpx.MockTransport(handler))
 
         client = _Concrete(
             "https://phab.example.com/api/",
             "mytoken",
-            http_client=mock_http,
+            http_client=http_client,
             oauth_token=oauth_token,
         )
-        return client, mock_http
+        return client, captured
 
     def test_conduit_token_mode_sends_api_token_param(self):
-        client, mock_http = self._make_base_client(oauth_token=False)
+        client, captured = self._make_base_client(oauth_token=False)
         client._make_request("conduit.ping")
 
-        _, kwargs = mock_http.post.call_args
-        sent_data = kwargs.get("data", {})
-        self.assertIn("api.token", sent_data)
-        self.assertNotIn("access_token", sent_data)
-        self.assertEqual(sent_data["api.token"], "mytoken")
+        self.assertIn("api.token=mytoken", captured["body"])
+        self.assertNotIn("access_token", captured["body"])
 
     def test_oauth_token_mode_sends_access_token_param(self):
-        client, mock_http = self._make_base_client(oauth_token=True)
+        client, captured = self._make_base_client(oauth_token=True)
         client._make_request("conduit.ping")
 
-        _, kwargs = mock_http.post.call_args
-        sent_data = kwargs.get("data", {})
-        self.assertIn("access_token", sent_data)
-        self.assertNotIn("api.token", sent_data)
-        self.assertEqual(sent_data["access_token"], "mytoken")
+        self.assertIn("access_token=mytoken", captured["body"])
+        self.assertNotIn("api.token", captured["body"])
 
 
 class TestOAuth2ClientSecret(unittest.TestCase):

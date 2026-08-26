@@ -1736,3 +1736,7 @@ def register_tools(  # noqa: C901
     from conduit.tools.phriction_tools import register_phriction_tools
 
     register_phriction_tools(mcp, get_client_func)
+
+    from conduit.tools.paste_tools import register_paste_tools
+
+    register_paste_tools(mcp, get_client_func)
