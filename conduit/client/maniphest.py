@@ -402,6 +402,11 @@ class ManiphestClient(BasePhabricatorClient):
         """Create a transaction to require MFA for this transaction group."""
         return {"type": "mfa", "value": require_mfa}
 
+    @staticmethod
+    def create_reference_transaction(reference: str) -> ManiphestTaskTransaction:
+        """Create a transaction to update the task's Reference custom field."""
+        return {"type": "custom.skroutz:reference", "value": reference}
+
     # Helper methods for common search operations
     def search_open_tasks(
         self, attachments: Optional[ManiphestSearchAttachments] = None, limit: int = 100
