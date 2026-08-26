@@ -650,6 +650,13 @@ class ManiphestTaskTransactionMFA(ManiphestTaskTransactionBase):
     value: bool
 
 
+class ManiphestTaskTransactionReference(ManiphestTaskTransactionBase):
+    """Update the Reference custom field (custom.skroutz:reference)."""
+
+    type: Literal["custom.skroutz:reference"]
+    value: str
+
+
 # Union type for all possible transaction types
 ManiphestTaskTransaction = Union[
     ManiphestTaskTransactionParent,
@@ -677,6 +684,7 @@ ManiphestTaskTransaction = Union[
     ManiphestTaskTransactionSubtype,
     ManiphestTaskTransactionComment,
     ManiphestTaskTransactionMFA,
+    ManiphestTaskTransactionReference,
 ]
 
 

@@ -13,6 +13,7 @@ from conduit.client.types import (
     ManiphestTaskTransactionProjectsAdd,
     ManiphestTaskTransactionProjectsRemove,
     ManiphestTaskTransactionProjectsSet,
+    ManiphestTaskTransactionReference,
     ManiphestTaskTransactionStatus,
     ManiphestTaskTransactionTitle,
     UserSearchAttachments,
@@ -321,6 +322,7 @@ def register_tools(  # noqa: C901
         projects_add: Optional[List[str]] = None,
         projects_remove: Optional[List[str]] = None,
         projects_set: Optional[List[str]] = None,
+        reference: Optional[str] = None,
     ) -> dict:
         """
         Update the metadata of a Phabricator task.
@@ -335,6 +337,7 @@ def register_tools(  # noqa: C901
             projects_add: List of project PHIDs to add the task to.
             projects_remove: List of project PHIDs to remove the task from.
             projects_set: List of project PHIDs to set (overwrites current projects).
+            reference: The new value for the task's Reference custom field.
 
         Returns:
             Success status.
@@ -380,6 +383,12 @@ def register_tools(  # noqa: C901
             transactions.append(
                 ManiphestTaskTransactionProjectsSet(
                     type="projects.set", value=projects_set
+                )
+            )
+        if reference is not None:
+            transactions.append(
+                ManiphestTaskTransactionReference(
+                    type="custom.skroutz:reference", value=reference
                 )
             )
 
