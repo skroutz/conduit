@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 
 from conduit.client.base import BasePhabricatorClient
-from conduit.utils.parameters import build_search_params
+from conduit.utils.parameters import build_search_params, build_transaction_params
 
 
 class ConduitClient(BasePhabricatorClient):
@@ -137,23 +137,41 @@ class PasteClient(BasePhabricatorClient):
     """
 
     def search_pastes(
-        self, constraints: Dict[str, Any] = None, limit: int = 100
+        self,
+        constraints: Dict[str, Any] = None,
+        attachments: Dict[str, Any] = None,
+        order: str = None,
+        after: str = None,
+        limit: int = 100,
+        max_response_bytes: int = None,
     ) -> Dict[str, Any]:
         """
         Read information about pastes.
 
         Args:
             constraints: Search constraints
+            attachments: Attachments to include (content, subscribers, projects)
+            order: Result ordering ("newest", "oldest", "created")
+            after: Cursor for the next page of results
             limit: Maximum number of results to return
+            max_response_bytes: Optional pre-decode response size ceiling,
+                forwarded to BasePhabricatorClient._make_request(). Callers
+                requesting attachments={"content": True} return
+                data/attacker-controlled paste bodies and should pass one.
 
         Returns:
             Paste information
         """
-        params = {"limit": limit}
-        if constraints:
-            params["constraints"] = constraints
-
-        return self._make_request("paste.search", params)
+        params = build_search_params(
+            constraints=constraints,
+            attachments=attachments,
+            order=order,
+            after=after,
+            limit=limit,
+        )
+        return self._make_request(
+            "paste.search", params, max_response_bytes=max_response_bytes
+        )
 
     def edit_paste(
         self, transactions: List[Dict[str, Any]], object_identifier: str = None
@@ -168,9 +186,10 @@ class PasteClient(BasePhabricatorClient):
         Returns:
             Paste data
         """
-        params = {"transactions": transactions}
-        if object_identifier:
-            params["objectIdentifier"] = object_identifier
+        params = build_transaction_params(
+            transactions=transactions,
+            object_identifier=object_identifier,
+        )
 
         return self._make_request("paste.edit", params)
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from conduit.utils import PhabricatorAPIError
+from conduit.utils import ErrorCode, PhabricatorAPIError
 
 
 class BasePhabricatorClient(ABC):
@@ -44,7 +44,10 @@ class BasePhabricatorClient(ABC):
             self.client = http_client
 
     def _make_request(
-        self, method: str, params: Dict[str, Any] = None
+        self,
+        method: str,
+        params: Dict[str, Any] = None,
+        max_response_bytes: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Make a request to the Phabricator API.
@@ -52,12 +55,23 @@ class BasePhabricatorClient(ABC):
         Args:
             method: API method name (e.g., 'maniphest.search')
             params: Parameters to send with the request, every value is JSON formatted
+            max_response_bytes: Optional ceiling on the decoded response body,
+                enforced while streaming and before json.loads() ever runs.
+                Most Conduit methods return small, well-bounded payloads and
+                should leave this unset -- established content APIs
+                (file.download, diffusion raw diffs, wiki content, ...) can
+                legitimately return large bodies and must not be capped by
+                default. Pass an explicit limit only for endpoints that can
+                return an attacker- or data-controlled amount of content
+                (e.g. Paste bodies).
 
         Returns:
             Response data from the API
 
         Raises:
-            PhabricatorAPIError: If the API returns an error
+            PhabricatorAPIError: If the API returns an error, the response
+                exceeds max_response_bytes, or the response arrives with an
+                unexpected Content-Encoding (see below)
             httpx.HTTPError: If there's a network error
         """
         if params is None:
@@ -71,10 +85,41 @@ class BasePhabricatorClient(ABC):
         url = urllib.parse.urljoin(self.api_url, method)
 
         try:
-            response = self.client.post(url, data=params)
-            response.raise_for_status()
+            body = bytearray()
+            # Request an uncompressed response and refuse anything else
+            # before reading a single byte of it. httpx's iter_bytes()
+            # transparently content-decodes each chunk as it's read, so a
+            # small compressed wire payload can expand into a much larger
+            # chunk than max_response_bytes before the check below ever
+            # sees it. Identity encoding keeps wire bytes and decoded bytes
+            # equal, which is what makes that check meaningful.
+            request_headers = {"Accept-Encoding": "identity"}
+            with self.client.stream(
+                "POST", url, data=params, headers=request_headers
+            ) as response:
+                response.raise_for_status()
 
-            data = response.json()
+                content_encoding = response.headers.get("content-encoding", "identity")
+                if content_encoding.lower() != "identity":
+                    raise PhabricatorAPIError(
+                        f"Refusing response from {method}: unexpected "
+                        f"Content-Encoding '{content_encoding}'",
+                        error_code=ErrorCode.UNSAFE_RESPONSE_ENCODING.value,
+                    )
+
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if (
+                        max_response_bytes is not None
+                        and len(body) > max_response_bytes
+                    ):
+                        raise PhabricatorAPIError(
+                            f"Response from {method} exceeded the "
+                            f"{max_response_bytes}-byte limit",
+                            error_code=ErrorCode.RESPONSE_TOO_LARGE.value,
+                        )
+
+            data = json.loads(bytes(body))
 
             if data.get("error_code"):
                 raise PhabricatorAPIError(

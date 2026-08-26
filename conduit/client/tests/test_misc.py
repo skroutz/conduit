@@ -202,9 +202,49 @@ class TestPasteClient:
         mock_request.assert_called_once_with(
             "paste.search",
             {
-                "constraints": {"authorPHIDs": ["PHID-USER-1"]},
+                "constraints[authorPHIDs][0]": "PHID-USER-1",
                 "limit": 10,
             },
+            max_response_bytes=None,
+        )
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_search_pastes_with_attachments(self, mock_request):
+        """Test searching pastes with content attached."""
+        mock_request.return_value = {"data": []}
+
+        self.client.search_pastes(
+            constraints={"ids": [123]},
+            attachments={"content": True},
+            limit=1,
+            max_response_bytes=25_000_000,
+        )
+
+        mock_request.assert_called_once_with(
+            "paste.search",
+            {
+                "constraints[ids][0]": 123,
+                "attachments[content]": True,
+                "limit": 1,
+            },
+            max_response_bytes=25_000_000,
+        )
+
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_search_pastes_with_ordering_and_cursor(self, mock_request):
+        """Test that order and pagination cursor reach the API."""
+        mock_request.return_value = {"data": []}
+
+        self.client.search_pastes(order="oldest", after="2256", limit=25)
+
+        mock_request.assert_called_once_with(
+            "paste.search",
+            {
+                "order": "oldest",
+                "after": "2256",
+                "limit": 25,
+            },
+            max_response_bytes=None,
         )
 
     @patch("conduit.client.base.BasePhabricatorClient._make_request")
@@ -224,7 +264,10 @@ class TestPasteClient:
         mock_request.assert_called_once_with(
             "paste.edit",
             {
-                "transactions": transactions,
+                "transactions[0][type]": "title",
+                "transactions[0][value]": "New Paste",
+                "transactions[1][type]": "text",
+                "transactions[1][value]": "Paste content",
             },
         )
 
@@ -242,7 +285,8 @@ class TestPasteClient:
         mock_request.assert_called_once_with(
             "paste.edit",
             {
-                "transactions": transactions,
+                "transactions[0][type]": "title",
+                "transactions[0][value]": "Updated Paste",
                 "objectIdentifier": "PHID-PAST-existing",
             },
         )
@@ -258,16 +302,15 @@ class TestPasteClient:
             title="Test Paste", content="print('hello world')", language="python"
         )
 
-        expected_transactions = [
-            {"type": "title", "value": "Test Paste"},
-            {"type": "text", "value": "print('hello world')"},
-            {"type": "language", "value": "python"},
-        ]
-
         mock_request.assert_called_once_with(
             "paste.edit",
             {
-                "transactions": expected_transactions,
+                "transactions[0][type]": "title",
+                "transactions[0][value]": "Test Paste",
+                "transactions[1][type]": "text",
+                "transactions[1][value]": "print('hello world')",
+                "transactions[2][type]": "language",
+                "transactions[2][value]": "python",
             },
         )
 
@@ -280,15 +323,13 @@ class TestPasteClient:
 
         self.client.create_paste(title="Simple Paste", content="Simple content")
 
-        expected_transactions = [
-            {"type": "title", "value": "Simple Paste"},
-            {"type": "text", "value": "Simple content"},
-        ]
-
         mock_request.assert_called_once_with(
             "paste.edit",
             {
-                "transactions": expected_transactions,
+                "transactions[0][type]": "title",
+                "transactions[0][value]": "Simple Paste",
+                "transactions[1][type]": "text",
+                "transactions[1][value]": "Simple content",
             },
         )
 
