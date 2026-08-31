@@ -508,6 +508,28 @@ def register_tools(  # noqa: C901
 
     @mcp.tool()
     @handle_api_errors
+    def pha_task_edit_comment(transaction_phid: str, comment: str) -> dict:
+        """
+        Edit an existing comment on a Phabricator task.
+
+        Args:
+            transaction_phid: The PHID of the comment transaction to edit
+                (e.g. "PHID-XACT-TASK-xxx"), as returned by
+                pha_task_get_transactions.
+            comment: The new content of the comment.
+
+        Returns:
+            Success status.
+        """
+        client = get_client_func()
+        client.maniphest.edit_comment(
+            transaction_phid=transaction_phid,
+            content=comment,
+        )
+        return {"success": True}
+
+    @mcp.tool()
+    @handle_api_errors
     @optimize_token_usage
     def pha_task_get_transactions(task_id: str) -> dict:
         """
