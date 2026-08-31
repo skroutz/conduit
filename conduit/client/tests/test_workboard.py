@@ -20,6 +20,7 @@ from conduit.client.types import (
     ManiphestSearchConstraints,
     ManiphestTaskTransactionStatus,
 )
+from conduit.main_tools import _build_task_transactions
 
 pytestmark = pytest.mark.integration
 
@@ -253,6 +254,47 @@ class TestWorkboardExistingFeatures(unittest.TestCase):
             # Check for columns attachment
             if "attachments" in task:
                 self.assertIn("columns", task["attachments"])
+
+    def test_edit_column_and_move_a_task_into_it(self):
+        """Create, move into, hide and reorder a column through project.column.edit."""
+        project_phid = os.getenv("PHABRICATOR_TEST_WORKBOARD_PROJECT_PHID")
+        if not project_phid:
+            self.skipTest("PHABRICATOR_TEST_WORKBOARD_PROJECT_PHID is not set")
+        if "project.column.edit" not in self.project_client._make_request(
+            "conduit.query", {}
+        ):
+            self.skipTest("project.column.edit is not available on this server")
+
+        column = self.project_client.edit_column(
+            project_phid=project_phid, name=f"{self.test_project_prefix}_column"
+        )
+
+        task = self.maniphest_client.create_task(
+            title=f"Column move task {time.time_ns()}"
+        )
+        self.maniphest_client.edit_task(
+            object_identifier=task["phid"],
+            transactions=_build_task_transactions(
+                projects_add=[project_phid], column_phid=column["phid"]
+            ),
+        )
+        moved = self.maniphest_client.search_tasks(
+            constraints={"phids": [task["phid"]]}, attachments={"columns": True}
+        )["data"][0]
+        board = moved["attachments"]["columns"]["boards"][project_phid]
+        self.assertEqual([c["phid"] for c in board["columns"]], [column["phid"]])
+
+        edited = self.project_client.edit_column(
+            column_phid=column["phid"], hidden=True, sequence=0
+        )
+        self.assertTrue(edited["hidden"])
+        self.assertEqual(edited["sequence"], 0)
+
+        searched = self.project_client.search_columns(
+            constraints={"phids": [column["phid"]]}
+        )["data"][0]["fields"]
+        self.assertTrue(searched["isHidden"])
+        self.assertEqual(searched["sequence"], 0)
 
     def _validate_column_structure(self, column):
         """Helper method to validate column object structure."""
