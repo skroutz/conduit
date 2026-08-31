@@ -650,6 +650,13 @@ class ManiphestTaskTransactionMFA(ManiphestTaskTransactionBase):
     value: bool
 
 
+class ManiphestTaskTransactionPoints(ManiphestTaskTransactionBase):
+    """Set the story points of a task (null clears the value)."""
+
+    type: Literal["points"]
+    value: Optional[Union[int, float]]
+
+
 class ManiphestTaskTransactionReference(ManiphestTaskTransactionBase):
     """Update the Reference custom field (custom.skroutz:reference)."""
 
@@ -691,6 +698,7 @@ ManiphestTaskTransaction = Union[
     ManiphestTaskTransactionSubtype,
     ManiphestTaskTransactionComment,
     ManiphestTaskTransactionMFA,
+    ManiphestTaskTransactionPoints,
     ManiphestTaskTransactionReference,
     ManiphestTaskTransactionDueDate,
 ]
