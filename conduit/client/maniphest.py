@@ -157,6 +157,22 @@ class ManiphestClient(BasePhabricatorClient):
 
         return self._make_request("maniphest.edit", params)
 
+    def edit_comment(self, transaction_phid: str, content: str) -> Dict[str, Any]:
+        """
+        Edit the content of an existing task comment.
+
+        Args:
+            transaction_phid: PHID of the comment transaction (PHID-XACT-TASK-xxx)
+            content: New comment content
+
+        Returns:
+            The edited comment's transaction PHID, object PHID and content
+        """
+        return self._make_request(
+            "maniphest.comment.edit",
+            {"transactionPHID": transaction_phid, "content": content},
+        )
+
     def get_task_transactions(self, task_id: int) -> Dict[str, Any]:
         """
         Get transaction history for a task.

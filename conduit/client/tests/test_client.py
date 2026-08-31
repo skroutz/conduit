@@ -1,5 +1,7 @@
 from unittest import TestCase
+from unittest.mock import patch
 
+from conduit.client.maniphest import ManiphestClient
 from conduit.utils import flatten_params
 
 
@@ -27,3 +29,22 @@ class TestBasePhabricatorClient(TestCase):
                     ("test[1][a]", 4),
                 ],
             )
+
+
+class TestManiphestEditComment(TestCase):
+    @patch("conduit.client.base.BasePhabricatorClient._make_request")
+    def test_edit_comment(self, mock_request):
+        client = ManiphestClient(
+            api_url="http://test.example.com/api/", api_token="test_token"
+        )
+        mock_request.return_value = {"transactionPHID": "PHID-XACT-TASK-abc"}
+
+        client.edit_comment("PHID-XACT-TASK-abc", "updated text")
+
+        mock_request.assert_called_once_with(
+            "maniphest.comment.edit",
+            {
+                "transactionPHID": "PHID-XACT-TASK-abc",
+                "content": "updated text",
+            },
+        )
