@@ -1,15 +1,21 @@
+import statistics
+import time
+from datetime import datetime, timezone
 from functools import wraps
-from typing import Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 from fastmcp import FastMCP
 
 from conduit.client.types import (
     ManiphestSearchAttachments,
     ManiphestSearchConstraints,
+    ManiphestTaskTransaction,
+    ManiphestTaskTransactionColumn,
     ManiphestTaskTransactionComment,
     ManiphestTaskTransactionDescription,
     ManiphestTaskTransactionDueDate,
     ManiphestTaskTransactionOwner,
+    ManiphestTaskTransactionPoints,
     ManiphestTaskTransactionPriority,
     ManiphestTaskTransactionProjectsAdd,
     ManiphestTaskTransactionProjectsRemove,
@@ -212,6 +218,281 @@ def _add_task_enumeration_metadata(result: dict, *, reverse: bool = False) -> di
     return result
 
 
+def _build_task_transactions(
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    priority: Optional[str] = None,
+    status: Optional[str] = None,
+    owner_phid: Optional[str] = None,
+    projects_add: Optional[List[str]] = None,
+    projects_remove: Optional[List[str]] = None,
+    projects_set: Optional[List[str]] = None,
+    reference: Optional[str] = None,
+    points: Optional[float] = None,
+    column_phid: Optional[str] = None,
+    comment: Optional[str] = None,
+    due_date: Optional[int] = None,
+) -> List[ManiphestTaskTransaction]:
+    """Build maniphest.edit transactions for the fields that were provided."""
+    transactions: List[ManiphestTaskTransaction] = []
+    if title is not None:
+        transactions.append(ManiphestTaskTransactionTitle(type="title", value=title))
+    if description is not None:
+        transactions.append(
+            ManiphestTaskTransactionDescription(type="description", value=description)
+        )
+    if priority is not None:
+        transactions.append(
+            ManiphestTaskTransactionPriority(type="priority", value=priority)
+        )
+    if status is not None:
+        transactions.append(ManiphestTaskTransactionStatus(type="status", value=status))
+    if owner_phid is not None:
+        transactions.append(
+            ManiphestTaskTransactionOwner(type="owner", value=owner_phid)
+        )
+    if projects_add is not None:
+        transactions.append(
+            ManiphestTaskTransactionProjectsAdd(type="projects.add", value=projects_add)
+        )
+    if projects_remove is not None:
+        transactions.append(
+            ManiphestTaskTransactionProjectsRemove(
+                type="projects.remove", value=projects_remove
+            )
+        )
+    if projects_set is not None:
+        transactions.append(
+            ManiphestTaskTransactionProjectsSet(type="projects.set", value=projects_set)
+        )
+    if reference is not None:
+        transactions.append(
+            ManiphestTaskTransactionReference(
+                type="custom.skroutz:reference", value=reference
+            )
+        )
+    if due_date is not None:
+        transactions.append(
+            ManiphestTaskTransactionDueDate(
+                type="custom.skroutz:due-date", value=due_date
+            )
+        )
+    if points is not None:
+        transactions.append(ManiphestTaskTransactionPoints(type="points", value=points))
+    if column_phid is not None:
+        transactions.append(
+            ManiphestTaskTransactionColumn(type="column", value=column_phid)
+        )
+    if comment is not None:
+        transactions.append(
+            ManiphestTaskTransactionComment(type="comment", value=comment)
+        )
+    return transactions
+
+
+def _normalize_task_id(task_id: str) -> str:
+    """Strip a leading T from a task monogram ("T1234" -> "1234")."""
+    if task_id and task_id[0] in ("T", "t") and task_id[1:].isdigit():
+        return task_id[1:]
+    return task_id
+
+
+def _fetch_tasks(client: PhabricatorClient, task_ids: List[str]) -> Dict[str, dict]:
+    """Load tasks by monogram, numeric ID or PHID, keyed by the given identifier."""
+    ids = {}
+    phids = {}
+    for task_id in task_ids:
+        normalized = _normalize_task_id(task_id)
+        if normalized.isdigit():
+            ids[int(normalized)] = task_id
+        else:
+            phids[normalized] = task_id
+
+    tasks = []
+    for key, values in (("ids", list(ids)), ("phids", list(phids))):
+        for offset in range(0, len(values), 100):
+            page = values[offset : offset + 100]
+            after = None
+            while True:
+                result = client.maniphest.search_tasks(
+                    constraints={key: page}, after=after, limit=100
+                )
+                tasks.extend(result.get("data", []))
+                after = (result.get("cursor") or {}).get("after")
+                if not after:
+                    break
+
+    found = {}
+    for task in tasks:
+        if task["id"] in ids:
+            found[ids[task["id"]]] = task
+        if task["phid"] in phids:
+            found[phids[task["phid"]]] = task
+    return found
+
+
+def _task_field_diff(task: dict, changes: Dict[str, Any]) -> List[dict]:
+    """Compare requested changes against a task's current field values."""
+    fields = task.get("fields") or {}
+    current = {
+        "title": fields.get("name"),
+        "description": (fields.get("description") or {}).get("raw"),
+        "status": (fields.get("status") or {}).get("value"),
+        "priority": (fields.get("priority") or {}).get("name"),
+        "owner_phid": fields.get("ownerPHID"),
+        "points": fields.get("points"),
+    }
+
+    diff = []
+    for field, new_value in changes.items():
+        old_value = current.get(field)
+        # Priority is read back as a display name ("High") but written as a
+        # keyword ("high"), so compare case-insensitively.
+        if field == "priority" and isinstance(old_value, str):
+            if old_value.lower() == str(new_value).lower():
+                continue
+        elif field in current and old_value == new_value:
+            continue
+
+        diff.append(
+            {
+                "task_id": "T{}".format(task["id"]),
+                "field": field,
+                "from": old_value,
+                "to": new_value,
+            }
+        )
+    return diff
+
+
+def _project_task_fields(result: dict, fields: Optional[List[str]]) -> dict:
+    """Keep only the named fields on each task, dropping the rest of the payload."""
+    if not fields:
+        return result
+
+    projected = []
+    for task in result.get("data") or []:
+        task_fields = task.get("fields") or {}
+        kept = {"id": task.get("id"), "phid": task.get("phid")}
+        for field in fields:
+            if field in ("id", "phid"):
+                continue
+            if field in task_fields:
+                kept[field] = task_fields[field]
+        projected.append(kept)
+
+    result["data"] = projected
+    return result
+
+
+TaskGrouping = Literal[
+    "column",
+    "priority",
+    "status",
+    "owner",
+    "project",
+    "points",
+    "staleness",
+    "created_month",
+    "closed_month",
+]
+
+DEFAULT_STALENESS_BUCKETS = [30, 90, 180, 365, 730]
+
+
+def _epoch_month(timestamp: Optional[int]) -> Optional[str]:
+    if not timestamp:
+        return None
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m")
+
+
+def _staleness_bucket(days: float, buckets: List[int]) -> str:
+    for bucket in buckets:
+        if days < bucket:
+            return "<{}d".format(bucket)
+    return ">={}d".format(buckets[-1]) if buckets else "all"
+
+
+def _task_group_keys(
+    task: dict,
+    group_by: TaskGrouping,
+    buckets: List[int],
+    now: float,
+) -> List[Tuple[str, str]]:
+    """Return the (key, label) pairs a task contributes to, usually just one."""
+    fields = task.get("fields") or {}
+    attachments = task.get("attachments") or {}
+
+    if group_by == "status":
+        status = fields.get("status") or {}
+        return [(status.get("value") or "unknown", status.get("name") or "Unknown")]
+
+    if group_by == "priority":
+        priority = fields.get("priority") or {}
+        return [
+            (str(priority.get("value")), priority.get("name") or "Unknown"),
+        ]
+
+    if group_by == "owner":
+        owner = fields.get("ownerPHID")
+        return [(owner or "unassigned", owner or "Unassigned")]
+
+    if group_by == "points":
+        points = fields.get("points")
+        return [("none" if points is None else str(points), str(points))]
+
+    if group_by == "staleness":
+        modified = fields.get("dateModified")
+        if not modified:
+            return [("unknown", "Unknown")]
+        label = _staleness_bucket((now - modified) / 86400, buckets)
+        return [(label, label)]
+
+    if group_by == "created_month":
+        month = _epoch_month(fields.get("dateCreated"))
+        return [(month or "unknown", month or "Unknown")]
+
+    if group_by == "closed_month":
+        month = _epoch_month(fields.get("dateClosed"))
+        return [(month or "open", month or "Still open")]
+
+    if group_by == "project":
+        phids = ((attachments.get("projects") or {}).get("projectPHIDs")) or []
+        return [(phid, phid) for phid in phids] or [("none", "No projects")]
+
+    if group_by == "column":
+        boards = ((attachments.get("columns") or {}).get("boards")) or {}
+        keys = []
+        for board in boards.values():
+            for column in board.get("columns") or []:
+                keys.append((column.get("phid"), column.get("name") or "Unnamed"))
+        return keys or [("none", "Not on a board")]
+
+    raise ValueError("unsupported group_by: {}".format(group_by))
+
+
+def _summarize_group(tasks: List[dict], now: float) -> dict:
+    ages = []
+    unassigned = 0
+    with_points = 0
+    for task in tasks:
+        fields = task.get("fields") or {}
+        if not fields.get("ownerPHID"):
+            unassigned += 1
+        if fields.get("points") is not None:
+            with_points += 1
+        created = fields.get("dateCreated")
+        if created:
+            ages.append((now - created) / 86400)
+
+    return {
+        "count": len(tasks),
+        "unassigned": unassigned,
+        "with_points": with_points,
+        "median_age_days": round(statistics.median(ages), 1) if ages else None,
+    }
+
+
 def register_tools(  # noqa: C901
     mcp: FastMCP,
     get_client_func: Callable[[], PhabricatorClient],
@@ -399,6 +680,9 @@ def register_tools(  # noqa: C901
         projects_set: Optional[List[str]] = None,
         reference: Optional[str] = None,
         due_date: Optional[int] = None,
+        points: Optional[float] = None,
+        column_phid: Optional[str] = None,
+        comment: Optional[str] = None,
     ) -> dict:
         """
         Update the metadata of a Phabricator task.
@@ -415,71 +699,241 @@ def register_tools(  # noqa: C901
             projects_set: List of project PHIDs to set (overwrites current projects).
             reference: The new value for the task's Reference custom field.
             due_date: The new value for the task's Due Date custom field, as a Unix epoch timestamp.
+            points: The new story point value for the task.
+            column_phid: PHID of the workboard column to move the task into.
+            comment: A comment to post along with the update.
 
         Returns:
             Success status.
         """
         client = get_client_func()
 
-        transactions = []
-        if title is not None:
-            transactions.append(
-                ManiphestTaskTransactionTitle(type="title", value=title)
-            )
-        if description is not None:
-            transactions.append(
-                ManiphestTaskTransactionDescription(
-                    type="description", value=description
-                )
-            )
-        if priority is not None:
-            transactions.append(
-                ManiphestTaskTransactionPriority(type="priority", value=priority)
-            )
-        if status is not None:
-            transactions.append(
-                ManiphestTaskTransactionStatus(type="status", value=status)
-            )
-        if owner_phid is not None:
-            transactions.append(
-                ManiphestTaskTransactionOwner(type="owner", value=owner_phid)
-            )
-        if projects_add is not None:
-            transactions.append(
-                ManiphestTaskTransactionProjectsAdd(
-                    type="projects.add", value=projects_add
-                )
-            )
-        if projects_remove is not None:
-            transactions.append(
-                ManiphestTaskTransactionProjectsRemove(
-                    type="projects.remove", value=projects_remove
-                )
-            )
-        if projects_set is not None:
-            transactions.append(
-                ManiphestTaskTransactionProjectsSet(
-                    type="projects.set", value=projects_set
-                )
-            )
-        if reference is not None:
-            transactions.append(
-                ManiphestTaskTransactionReference(
-                    type="custom.skroutz:reference", value=reference
-                )
-            )
-        if due_date is not None:
-            transactions.append(
-                ManiphestTaskTransactionDueDate(
-                    type="custom.skroutz:due-date", value=due_date
-                )
-            )
+        transactions = _build_task_transactions(
+            title=title,
+            description=description,
+            priority=priority,
+            status=status,
+            owner_phid=owner_phid,
+            projects_add=projects_add,
+            projects_remove=projects_remove,
+            projects_set=projects_set,
+            reference=reference,
+            points=points,
+            column_phid=column_phid,
+            comment=comment,
+            due_date=due_date,
+        )
 
         client.maniphest.edit_task(
             object_identifier=task_id,
             transactions=transactions,
         )
         return {"success": True}
+
+    @mcp.tool()
+    @handle_api_errors
+    def pha_task_aggregate(
+        projects: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        group_by: TaskGrouping = "status",
+        staleness_buckets: Optional[List[int]] = None,
+        created_after: Optional[int] = None,
+        created_before: Optional[int] = None,
+        modified_after: Optional[int] = None,
+        modified_before: Optional[int] = None,
+        max_tasks: int = 5000,
+    ) -> dict:
+        """
+        Count tasks by group without returning the tasks themselves.
+
+        Args:
+            projects: Project slugs or PHIDs. Descendant projects match too,
+                as they do in Conduit.
+            statuses: Task statuses to include, such as ["open"].
+            group_by: What to count by. "column" and "project" read the
+                board and project attachments, so a task on several boards is
+                counted once per column.
+            staleness_buckets: Day boundaries for group_by="staleness",
+                defaulting to [30, 90, 180, 365, 730].
+            created_after: Unix timestamp; tasks created at or after it.
+            created_before: Unix timestamp; tasks created at or before it.
+            modified_after: Unix timestamp; tasks modified at or after it.
+            modified_before: Unix timestamp; tasks modified at or before it.
+            max_tasks: Stop after reading this many tasks, so an unbounded
+                query cannot page forever.
+
+        Returns:
+            The total task count and per-group counts, each with how many are
+            unassigned, how many carry points, and the median task age in days.
+            Owner and project groups are keyed by PHID, not by name.
+        """
+        buckets = sorted(staleness_buckets or DEFAULT_STALENESS_BUCKETS)
+
+        constraints: ManiphestSearchConstraints = {}
+        if projects:
+            constraints["projects"] = projects
+        if statuses:
+            constraints["statuses"] = statuses
+        if created_after is not None:
+            constraints["createdStart"] = created_after
+        if created_before is not None:
+            constraints["createdEnd"] = created_before
+        if modified_after is not None:
+            constraints["modifiedStart"] = modified_after
+        if modified_before is not None:
+            constraints["modifiedEnd"] = modified_before
+
+        attachments: ManiphestSearchAttachments = {}
+        if group_by == "column":
+            attachments["columns"] = True
+        if group_by == "project":
+            attachments["projects"] = True
+
+        client = get_client_func()
+
+        tasks = []
+        after = None
+        while len(tasks) < max_tasks:
+            result = client.maniphest.search_tasks(
+                constraints=constraints or None,
+                attachments=attachments or None,
+                after=after,
+                limit=min(100, max_tasks - len(tasks)),
+            )
+            tasks.extend(result.get("data") or [])
+
+            after = (result.get("cursor") or {}).get("after")
+            if not after:
+                break
+
+        now = time.time()
+        grouped: Dict[str, List[dict]] = {}
+        labels: Dict[str, str] = {}
+        for task in tasks:
+            for key, label in _task_group_keys(task, group_by, buckets, now):
+                grouped.setdefault(key, []).append(task)
+                labels[key] = label
+
+        groups = [
+            dict(key=key, label=labels[key], **_summarize_group(members, now))
+            for key, members in grouped.items()
+        ]
+        groups.sort(key=lambda group: group["count"], reverse=True)
+
+        return {
+            "success": True,
+            "total": len(tasks),
+            "truncated": after is not None,
+            "group_by": group_by,
+            "groups": groups,
+        }
+
+    @mcp.tool()
+    @handle_api_errors
+    def pha_task_bulk_update(
+        task_ids: List[str],
+        dry_run: bool = True,
+        priority: Optional[str] = None,
+        status: Optional[str] = None,
+        owner_phid: Optional[str] = None,
+        projects_add: Optional[List[str]] = None,
+        projects_remove: Optional[List[str]] = None,
+        projects_set: Optional[List[str]] = None,
+        points: Optional[float] = None,
+        column_phid: Optional[str] = None,
+        comment: Optional[str] = None,
+    ) -> dict:
+        """
+        Apply the same update to many Phabricator tasks, previewing by default.
+
+        Args:
+            task_ids: Task monograms, numeric IDs or PHIDs, at most 500.
+            dry_run: When true (the default) nothing is written: the change set
+                is computed and returned for review.
+            priority: The new priority for every task.
+            status: The new status for every task.
+            owner_phid: The PHID of the new owner for every task.
+            projects_add: List of project PHIDs to add to every task.
+            projects_remove: List of project PHIDs to remove from every task.
+            projects_set: List of project PHIDs to set on every task.
+            points: The new story point value for every task.
+            column_phid: PHID of the workboard column to move every task into.
+            comment: A comment to post on every task.
+
+        Returns:
+            The change set as would_change, whether it was applied, and per-task
+            errors. Tasks that could not be loaded are reported in errors.
+        """
+        if not task_ids:
+            raise ValueError("task_ids must not be empty")
+        if len(task_ids) > 500:
+            raise ValueError("task_ids accepts at most 500 tasks per call")
+
+        transactions = _build_task_transactions(
+            priority=priority,
+            status=status,
+            owner_phid=owner_phid,
+            projects_add=projects_add,
+            projects_remove=projects_remove,
+            projects_set=projects_set,
+            points=points,
+            column_phid=column_phid,
+            comment=comment,
+        )
+        if not transactions:
+            raise ValueError("no fields to update were provided")
+
+        client = get_client_func()
+        tasks = _fetch_tasks(client, task_ids)
+
+        # Fields whose current value the search response exposes, so a dry run
+        # can show what the edit would actually change.
+        changes = {
+            field: value
+            for field, value in (
+                ("priority", priority),
+                ("status", status),
+                ("owner_phid", owner_phid),
+                ("points", points),
+            )
+            if value is not None
+        }
+
+        would_change = []
+        errors = []
+        for task_id in task_ids:
+            task = tasks.get(task_id)
+            if task is None:
+                errors.append({"task_id": task_id, "error": "task not found"})
+                continue
+            would_change.extend(_task_field_diff(task, changes))
+
+        if dry_run:
+            return {
+                "success": True,
+                "applied": False,
+                "would_change": would_change,
+                "errors": errors,
+            }
+
+        applied_to = []
+        for task_id, task in tasks.items():
+            try:
+                client.maniphest.edit_task(
+                    object_identifier=task["phid"],
+                    transactions=transactions,
+                )
+                applied_to.append(task_id)
+            except Exception as exc:  # noqa: BLE001 - reported per task
+                errors.append({"task_id": task_id, "error": str(exc)})
+
+        return {
+            "success": not errors,
+            "applied": True,
+            "applied_to": applied_to,
+            "would_change": would_change,
+            "errors": errors,
+        }
 
     @mcp.tool()
     @handle_api_errors
@@ -693,6 +1147,7 @@ def register_tools(  # noqa: C901
         closed_before: Optional[int] = None,
         before: Optional[str] = None,
         after: Optional[str] = None,
+        fields: Optional[List[str]] = None,
     ) -> dict:
         """
         Advanced task search with filtering and preset options. For a cursor page,
@@ -729,6 +1184,9 @@ def register_tools(  # noqa: C901
                 all query-defining arguments unchanged from the prior request.
             after: Opaque cursor from cursor.after for the next page. Repeat all
                 query-defining arguments unchanged from the prior request.
+            fields: Task fields to keep, such as ["ownerPHID", "points",
+                "dateModified"]. Omit to return the full task payload. Each
+                task always keeps its id and phid.
 
         Returns:
             Search results with task data and pagination metadata
@@ -836,6 +1294,7 @@ def register_tools(  # noqa: C901
         )
 
         result = _add_task_enumeration_metadata(result, reverse=before is not None)
+        result = _project_task_fields(result, fields)
 
         return {"success": True, "results": result}
 
@@ -1755,6 +2214,7 @@ def register_tools(  # noqa: C901
         project_phids: Optional[List[str]] = None,
         phids: Optional[List[str]] = None,
         limit: int = 100,
+        include_hidden: bool = True,
     ) -> dict:
         """
         Search for workboard columns with filtering capabilities.
@@ -1762,36 +2222,120 @@ def register_tools(  # noqa: C901
         Args:
             project_phids: List of project PHIDs to search columns in
             phids: List of specific column PHIDs to search for
-            limit: Maximum number of results to return (default: 100, max: 1000)
+            limit: Maximum number of columns to return. Values above 100 are
+                served by reading successive pages, as one board can hold more
+                columns than a single page returns.
+            include_hidden: Include columns hidden from the board. Hidden
+                columns are returned by default.
 
         Returns:
-            Search results with column data and pagination metadata
+            Column data, each with is_hidden, sequence and proxy_phid, plus the
+            number of columns read and whether more remain.
         """
-        # Initialize None parameters to empty lists
-        if project_phids is None:
-            project_phids = []
-        if phids is None:
-            phids = []
+        if limit < 1:
+            raise ValueError("limit must be a positive integer")
 
         client = get_client_func()
 
-        # Build constraints - only use supported parameters
         constraints = {}
-
         if project_phids:
             constraints["projects"] = project_phids
         if phids:
             constraints["phids"] = phids
 
-        result = client.project.search_columns(
-            constraints=constraints if constraints else None,
+        columns = []
+        after = None
+        while len(columns) < limit:
+            result = client.project.search_columns(
+                constraints=constraints if constraints else None,
+                limit=min(100, limit - len(columns)),
+                after=after,
+            )
+            page = result.get("data") or []
+            if not include_hidden:
+                page = [
+                    column
+                    for column in page
+                    if not (column.get("fields") or {}).get("isHidden")
+                ]
+            columns.extend(page)
+
+            after = (result.get("cursor") or {}).get("after")
+            if not after:
+                break
+
+        return {
+            "success": True,
+            "columns": columns[:limit],
+            "has_more": after is not None,
+            "returned": len(columns[:limit]),
+        }
+
+    @mcp.tool()
+    @handle_api_errors
+    def pha_workboard_edit_column(
+        column_phid: Optional[str] = None,
+        project_phid: Optional[str] = None,
+        name: Optional[str] = None,
+        hidden: Optional[bool] = None,
+        sequence: Optional[int] = None,
+        limit: Optional[int] = None,
+        dry_run: bool = True,
+    ) -> dict:
+        """
+        Create or edit a workboard column, previewing the change by default.
+
+        Args:
+            column_phid: PHID of the column to edit. Omit to create a column.
+            project_phid: PHID of the board, required when creating a column.
+            name: New name for the column, required when creating one.
+            hidden: True to hide the column from the board, False to show it.
+            sequence: Position of the column on the board.
+            limit: Point limit for the column, 0 to remove the limit.
+            dry_run: When true (the default) nothing is written: the requested
+                change is returned for review.
+
+        Returns:
+            The requested change and, once applied, the column's new state.
+            The default "Backlog" column cannot be hidden, and columns that
+            proxy a subproject are renamed or hidden by editing the subproject.
+        """
+        if column_phid is None and not (project_phid and name):
+            raise ValueError("creating a column requires both project_phid and name")
+
+        change = {
+            field: value
+            for field, value in (
+                ("name", name),
+                ("hidden", hidden),
+                ("sequence", sequence),
+                ("limit", limit),
+            )
+            if value is not None
+        }
+        if not change:
+            raise ValueError("no column fields to change were provided")
+
+        if dry_run:
+            return {
+                "success": True,
+                "applied": False,
+                "creates_column": column_phid is None,
+                "column_phid": column_phid,
+                "would_change": change,
+            }
+
+        client = get_client_func()
+        column = client.project.edit_column(
+            column_phid=column_phid,
+            project_phid=project_phid,
+            name=name,
+            hidden=hidden,
             limit=limit,
+            sequence=sequence,
         )
 
-        # Add pagination metadata
-        result = _add_pagination_metadata(result, result.get("cursor"))
-
-        return {"success": True, "columns": result}
+        return {"success": True, "applied": True, "column": column}
 
     @mcp.tool()
     @handle_api_errors
