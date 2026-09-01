@@ -124,6 +124,10 @@ final class PhabricatorBootstrapAdminWorkflow extends PhabricatorManagementWorkf
     $console->writeOut("Generating API token...\n");
     $token = $this->generateAPIToken($user);
 
+    $workboard = $this->createWorkboardFixture($user);
+    $workboard_project = $workboard[0];
+    $workboard_column = $workboard[1];
+
     $console->writeOut("\n=== BOOTSTRAP COMPLETE ===\n");
     $console->writeOut("Username: %s\n", $user->getUsername());
     $console->writeOut("Email: %s\n", $user->loadPrimaryEmail()->getAddress());
@@ -132,6 +136,12 @@ final class PhabricatorBootstrapAdminWorkflow extends PhabricatorManagementWorkf
     $console->writeOut("Admin: %s\n", $user->getIsAdmin() ? 'Yes' : 'No');
     $console->writeOut("API Token: %s\n", $token->getToken());
     $console->writeOut("Token PHID: %s\n", $token->getPHID());
+    $console->writeOut(
+      "Workboard Project PHID: %s\n",
+      $workboard_project->getPHID());
+    $console->writeOut(
+      "Workboard Column PHID: %s\n",
+      $workboard_column->getPHID());
     $console->writeOut("\nYou can now use this token for API access.\n");
     
     if (!$password) {
@@ -141,6 +151,33 @@ final class PhabricatorBootstrapAdminWorkflow extends PhabricatorManagementWorkf
     }
 
     return 0;
+  }
+
+  private function createWorkboardFixture(PhabricatorUser $user) {
+    $project = PhabricatorProject::initializeNewProject($user)
+      ->setName('Conduit Integration Test Workboard')
+      ->save();
+
+    $column = PhabricatorProjectColumn::initializeNewColumn($user)
+      ->setSequence(0)
+      ->setProperty('isDefault', true)
+      ->setProjectPHID($project->getPHID())
+      ->save();
+
+    $xactions = array();
+    $xactions[] = id(new PhabricatorProjectTransaction())
+      ->setTransactionType(
+        PhabricatorProjectWorkboardTransaction::TRANSACTIONTYPE)
+      ->setNewValue(1);
+
+    id(new PhabricatorProjectTransactionEditor())
+      ->setActor($user)
+      ->setContentSource($this->newContentSource())
+      ->setContinueOnNoEffect(true)
+      ->setContinueOnMissingFields(true)
+      ->applyTransactions($project, $xactions);
+
+    return array($project, $column);
   }
 
   private function createUser($username, $email, $realname) {

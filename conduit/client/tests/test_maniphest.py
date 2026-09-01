@@ -1,9 +1,11 @@
+import time
 from unittest import TestCase
 
 import pytest
 
 from conduit.client.base import PhabricatorAPIError
 from conduit.client.maniphest import ManiphestClient
+from conduit.client.project import ProjectClient
 from conduit.client.types import (
     ManiphestSearchAttachments,
     ManiphestSearchConstraints,
@@ -293,6 +295,70 @@ class TestManiphestClient(TestCase):
 
                 # Verify author is current user
                 self.assertEqual(task["fields"]["authorPHID"], self.user["phid"])
+
+    def test_resolved_project_cursor_enumeration(self):
+        config = get_config()
+        project_client = ProjectClient(config.url, config.token)
+        project = project_client.create_project(
+            name=f"resolved_enumeration_{time.time_ns()}",
+            description="Project for resolved task cursor enumeration",
+        )
+        project_phid = project["object"]["phid"]
+        tasks = [
+            self.cli.create_task(
+                title=f"Resolved enumeration task {index}",
+            )
+            for index in range(2)
+        ]
+        for task in tasks:
+            self.cli.edit_task(
+                object_identifier=task["phid"],
+                transactions=[self.cli.create_projects_add_transaction([project_phid])],
+            )
+
+        window_start = int(time.time()) - 1
+        for task in tasks:
+            self.cli.edit_task(
+                object_identifier=task["phid"],
+                transactions=[
+                    ManiphestTaskTransactionStatus(
+                        type="status",
+                        value="resolved",
+                    )
+                ],
+            )
+        window_end = int(time.time()) + 1
+
+        constraints: ManiphestSearchConstraints = {
+            "projects": [project_phid],
+            "statuses": ["resolved"],
+            "closedStart": window_start,
+            "closedEnd": window_end,
+        }
+        first = self.cli.search_tasks(
+            constraints=constraints,
+            order="closed",
+            limit=1,
+        )
+        self.assertIsNotNone(first["cursor"]["after"])
+
+        second = self.cli.search_tasks(
+            constraints=constraints,
+            order="closed",
+            after=first["cursor"]["after"],
+            limit=1,
+        )
+
+        returned = first["data"] + second["data"]
+        self.assertEqual(
+            {task["phid"] for task in returned},
+            {task["phid"] for task in tasks},
+        )
+        for task in returned:
+            self.assertEqual(task["fields"]["status"]["value"], "resolved")
+            self.assertGreaterEqual(task["fields"]["dateClosed"], window_start)
+            self.assertLessEqual(task["fields"]["dateClosed"], window_end)
+        self.assertIsNone(second["cursor"]["after"])
 
     def test_search_helper_methods(self):
         """Test helper search methods"""
