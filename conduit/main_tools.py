@@ -137,6 +137,80 @@ def _add_pagination_metadata(result: dict, cursor: dict = None) -> dict:
     return result
 
 
+def _validate_task_page_request(
+    limit: int,
+    before: Optional[str],
+    after: Optional[str],
+) -> None:
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("limit must be an integer between 1 and 1000")
+
+    if before is not None and after is not None:
+        raise ValueError("before and after may not be provided together")
+
+    if before is not None and not before:
+        raise ValueError("before must be a non-empty opaque cursor")
+
+    if after is not None and not after:
+        raise ValueError("after must be a non-empty opaque cursor")
+
+
+def _add_task_enumeration_metadata(result: dict, *, reverse: bool = False) -> dict:
+    data = result.get("data")
+    if not isinstance(data, list):
+        raise ValueError("maniphest.search response must contain a data list")
+
+    cursor = result.get("cursor")
+    if not isinstance(cursor, dict):
+        raise ValueError("maniphest.search response must contain a cursor object")
+
+    for field in ("after", "before", "limit", "order"):
+        if field not in cursor:
+            raise ValueError(f"maniphest.search cursor.{field} is required")
+
+    for field in ("after", "before"):
+        value = cursor[field]
+        if value is not None and not isinstance(value, str):
+            raise ValueError(
+                f"maniphest.search cursor.{field} must be a string or null"
+            )
+
+    cursor_limit = cursor["limit"]
+    if isinstance(cursor_limit, bool):
+        raise ValueError(
+            "maniphest.search cursor.limit must be an integer between 1 and 1000"
+        )
+    if isinstance(cursor_limit, str) and cursor_limit.isdecimal():
+        pagination_limit = int(cursor_limit)
+    elif isinstance(cursor_limit, int):
+        pagination_limit = cursor_limit
+    else:
+        raise ValueError(
+            "maniphest.search cursor.limit must be an integer between 1 and 1000"
+        )
+    if not 1 <= pagination_limit <= 1000:
+        raise ValueError(
+            "maniphest.search cursor.limit must be an integer between 1 and 1000"
+        )
+
+    cursor_order = cursor["order"]
+    if cursor_order is not None and not isinstance(cursor_order, str):
+        raise ValueError("maniphest.search cursor.order must be a string or null")
+
+    has_next = cursor["after"] is not None
+    has_previous = cursor["before"] is not None
+    result["pagination"] = {
+        "cursor": cursor,
+        "limit": cursor_limit,
+        "returned": len(data),
+        "has_more": has_next,
+        "has_next": has_next,
+        "has_previous": has_previous,
+        "complete": not has_previous if reverse else not has_next,
+    }
+    return result
+
+
 def register_tools(  # noqa: C901
     mcp: FastMCP,
     get_client_func: Callable[[], PhabricatorClient],
@@ -584,9 +658,16 @@ def register_tools(  # noqa: C901
         preset: Literal[
             "all", "assigned", "authored", "open", "high_priority", "recent"
         ] = None,
+        closed_after: Optional[int] = None,
+        closed_before: Optional[int] = None,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
     ) -> dict:
         """
-        Advanced task search with filtering and preset options.
+        Advanced task search with filtering and preset options. For a cursor page,
+        repeat all query-defining arguments unchanged and replace only the cursor.
+        Pagination preserves the upstream cursor limit as an integer or decimal string.
+        Complete is true when no page remains in the requested direction.
 
         Args:
             query_key: Builtin query ("assigned", "authored", "subscribed", "open", "all")
@@ -607,12 +688,26 @@ def register_tools(  # noqa: C901
             include_subscribers: Include subscriber information in results
             include_projects: Include project information in results
             include_columns: Include workboard column information in results
-            limit: Maximum number of results to return (default: 100, max: 1000)
-            preset: Preset search configurations for common use cases
+            limit: Number of tasks to request, from 1 through 1000. The configured
+                Phabricator server may enforce a lower maximum.
+            preset: Preset search configurations for common use cases. The
+                dynamic "recent" preset cannot be combined with a cursor.
+            closed_after: Unix timestamp; include tasks closed at or after it.
+            closed_before: Unix timestamp; include tasks closed at or before it.
+            before: Opaque cursor from cursor.before for the previous page. Repeat
+                all query-defining arguments unchanged from the prior request.
+            after: Opaque cursor from cursor.after for the next page. Repeat all
+                query-defining arguments unchanged from the prior request.
 
         Returns:
             Search results with task data and pagination metadata
         """
+        _validate_task_page_request(limit, before, after)
+        if preset == "recent" and (before is not None or after is not None):
+            raise ValueError(
+                'preset "recent" cannot be combined with before or after cursors'
+            )
+
         # Initialize None parameters to empty lists
         if assigned is None:
             assigned = []
@@ -685,6 +780,10 @@ def register_tools(  # noqa: C901
             constraints["modifiedStart"] = modified_after
         if modified_before:
             constraints["modifiedEnd"] = modified_before
+        if closed_after is not None:
+            constraints["closedStart"] = closed_after
+        if closed_before is not None:
+            constraints["closedEnd"] = closed_before
 
         # Build attachments
         attachments: ManiphestSearchAttachments = {}
@@ -700,11 +799,12 @@ def register_tools(  # noqa: C901
             constraints=constraints if constraints else None,
             attachments=attachments if attachments else None,
             order=order or None,
+            before=before,
+            after=after,
             limit=limit,
         )
 
-        # Add pagination metadata
-        result = _add_pagination_metadata(result, result.get("cursor"))
+        result = _add_task_enumeration_metadata(result, reverse=before is not None)
 
         return {"success": True, "results": result}
 
@@ -1705,32 +1805,49 @@ def register_tools(  # noqa: C901
     def pha_workboard_search_tasks_by_column(
         column_phid: str,
         limit: int = 100,
+        statuses: Optional[List[str]] = None,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
     ) -> dict:
         """
-        Search for tasks in a specific workboard column.
+        Search one page of tasks currently positioned in a workboard column. For a
+        cursor page, repeat all query-defining arguments unchanged and replace only
+        the cursor. Pagination preserves the upstream cursor limit as an integer or
+        decimal string. Complete is true when no page remains in the requested
+        direction.
 
         Args:
-            column_phid: Column PHID to search tasks in
-            limit: Maximum number of results to return (default: 100, max: 1000)
+            column_phid: Column PHID to search tasks in.
+            limit: Number of tasks to request, from 1 through 1000. The configured
+                Phabricator server may enforce a lower maximum.
+            statuses: Literal task status identifiers to include, such as "open"
+                or "resolved". Omit to include all statuses.
+            before: Opaque cursor from cursor.before for the previous page. Repeat
+                all query-defining arguments unchanged from the prior request.
+            after: Opaque cursor from cursor.after for the next page. Repeat all
+                query-defining arguments unchanged from the prior request.
 
         Returns:
-            Search results with task data and pagination metadata
+            Search results with the upstream cursor plus returned, has_next,
+            has_previous, and complete pagination metadata.
         """
+        _validate_task_page_request(limit, before, after)
         client = get_client_func()
 
-        # Build constraints for column search
-        constraints = {
+        constraints: ManiphestSearchConstraints = {
             "columnPHIDs": [column_phid],
         }
+        if statuses:
+            constraints["statuses"] = statuses
 
         result = client.maniphest.search_tasks(
             constraints=constraints,
+            before=before,
+            after=after,
             limit=limit,
         )
 
-        # Add pagination metadata
-        result = _add_pagination_metadata(result, result.get("cursor"))
-
+        result = _add_task_enumeration_metadata(result, reverse=before is not None)
         return {"success": True, "tasks": result}
 
     from conduit.tools.phriction_tools import register_phriction_tools

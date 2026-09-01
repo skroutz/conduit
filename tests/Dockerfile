@@ -126,6 +126,8 @@ RUN service mysql start && \
     cd /opt/phorge && \
     ./bin/init_phabricator bootstrap --username admin --password Passw0rd --email admin@example.com > /tmp/bootstrap_output.txt 2>&1 && \
     grep "API Token:" /tmp/bootstrap_output.txt | cut -d' ' -f3 > /opt/phorge/api_token.txt && \
+    grep "Workboard Project PHID:" /tmp/bootstrap_output.txt | cut -d' ' -f4 > /opt/phorge/workboard_project_phid.txt && \
+    grep "Workboard Column PHID:" /tmp/bootstrap_output.txt | cut -d' ' -f4 > /opt/phorge/workboard_column_phid.txt && \
     cat /tmp/bootstrap_output.txt && \
     echo "API Token saved to /opt/phorge/api_token.txt" && \
     service mysql stop
@@ -191,6 +193,15 @@ RUN echo "#!/bin/bash" > /usr/local/bin/get-api-token.sh && \
     echo "  fi" >> /usr/local/bin/get-api-token.sh && \
     echo "fi" >> /usr/local/bin/get-api-token.sh && \
     chmod +x /usr/local/bin/get-api-token.sh
+
+COPY <<'EOF' /usr/local/bin/get-workboard-fixture.sh
+#!/bin/bash
+set -euo pipefail
+printf 'export PHABRICATOR_TEST_WORKBOARD_PROJECT_PHID=%q\n' "$(cat /opt/phorge/workboard_project_phid.txt)"
+printf 'export PHABRICATOR_TEST_WORKBOARD_COLUMN_PHID=%q\n' "$(cat /opt/phorge/workboard_column_phid.txt)"
+EOF
+
+RUN chmod +x /usr/local/bin/get-workboard-fixture.sh
 
 RUN if [ -f /opt/phorge/api_token.txt ]; then \
     echo "export PHORGE_API_TOKEN=$(cat /opt/phorge/api_token.txt)" >> /etc/environment; \

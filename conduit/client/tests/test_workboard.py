@@ -8,6 +8,7 @@ This module tests the Workboard functionality that currently works:
 4. Task-column attachment data structure
 """
 
+import os
 import time
 import unittest
 
@@ -15,6 +16,10 @@ import pytest
 
 from conduit.client.project import ProjectClient
 from conduit.client.maniphest import ManiphestClient
+from conduit.client.types import (
+    ManiphestSearchConstraints,
+    ManiphestTaskTransactionStatus,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -25,8 +30,6 @@ class TestWorkboardExistingFeatures(unittest.TestCase):
     def setUp(self):
         """Set up test environment with clients."""
         # Use environment variables for configuration
-        import os
-
         api_url = os.getenv("PHABRICATOR_URL", "http://127.0.0.1:8080/api/")
         api_token = os.getenv("PHABRICATOR_TOKEN")
 
@@ -36,6 +39,59 @@ class TestWorkboardExistingFeatures(unittest.TestCase):
         self.project_client = ProjectClient(api_url, api_token)
         self.maniphest_client = ManiphestClient(api_url, api_token)
         self.test_project_prefix = f"workboard_test_{int(time.time())}"
+
+    def _create_enumeration_tasks(self):
+        self.workboard_project_phid = os.getenv(
+            "PHABRICATOR_TEST_WORKBOARD_PROJECT_PHID"
+        )
+        self.workboard_column_phid = os.getenv("PHABRICATOR_TEST_WORKBOARD_COLUMN_PHID")
+        if not self.workboard_project_phid or not self.workboard_column_phid:
+            self.skipTest("seeded workboard fixture environment variables are not set")
+
+        open_tasks = [
+            self.maniphest_client.create_task(
+                title=f"Enumeration open task {index} {time.time_ns()}",
+            )
+            for index in range(2)
+        ]
+        resolved_task = self.maniphest_client.create_task(
+            title=f"Enumeration resolved task {time.time_ns()}",
+        )
+        tasks = [*open_tasks, resolved_task]
+
+        for task in tasks:
+            self.maniphest_client.edit_task(
+                object_identifier=task["phid"],
+                transactions=[
+                    self.maniphest_client.create_projects_add_transaction(
+                        [self.workboard_project_phid]
+                    )
+                ],
+            )
+            self.maniphest_client.edit_task(
+                object_identifier=task["phid"],
+                transactions=[
+                    self.maniphest_client.create_column_transaction(
+                        column_phid=self.workboard_column_phid
+                    )
+                ],
+            )
+
+        self.maniphest_client.edit_task(
+            object_identifier=resolved_task["phid"],
+            transactions=[
+                ManiphestTaskTransactionStatus(
+                    type="status",
+                    value="resolved",
+                )
+            ],
+        )
+
+        return (
+            [task["phid"] for task in tasks],
+            {task["phid"] for task in open_tasks},
+            resolved_task["phid"],
+        )
 
     def test_column_search_functionality(self):
         """Test project column search functionality."""
@@ -87,6 +143,33 @@ class TestWorkboardExistingFeatures(unittest.TestCase):
 
         self.assertEqual(len(empty_result["data"]), 0)
         self.assertIn("cursor", empty_result)
+
+    def test_column_status_filter_supports_cursor_enumeration(self):
+        task_phids, open_phids, resolved_phid = self._create_enumeration_tasks()
+        constraints: ManiphestSearchConstraints = {
+            "phids": task_phids,
+            "columnPHIDs": [self.workboard_column_phid],
+            "statuses": ["open"],
+        }
+
+        first = self.maniphest_client.search_tasks(
+            constraints=constraints,
+            limit=1,
+        )
+
+        self.assertEqual(len(first["data"]), 1)
+        self.assertIsNotNone(first["cursor"]["after"])
+
+        second = self.maniphest_client.search_tasks(
+            constraints=constraints,
+            after=first["cursor"]["after"],
+            limit=1,
+        )
+
+        returned_open_phids = {task["phid"] for task in first["data"] + second["data"]}
+        self.assertEqual(returned_open_phids, open_phids)
+        self.assertNotIn(resolved_phid, returned_open_phids)
+        self.assertIsNone(second["cursor"]["after"])
 
     def test_column_transaction_creation(self):
         """Test creation of column transactions for task movement."""
