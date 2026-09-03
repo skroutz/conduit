@@ -56,9 +56,19 @@ class RecordingProject:
 
 
 @dataclass
+class RecordingDashboard:
+    edits: List[Dict[str, Any]] = field(default_factory=list)
+
+    def edit_panel(self, **kwargs: Any) -> Dict[str, Any]:
+        self.edits.append(kwargs)
+        return {"object": {"phid": kwargs["panel_phid"]}}
+
+
+@dataclass
 class RecordingClient:
     maniphest: RecordingManiphest
     project: RecordingProject
+    dashboard: RecordingDashboard
 
 
 def task(task_id, **fields):
@@ -72,9 +82,10 @@ def task(task_id, **fields):
 def build_tools(task_pages=None, column_pages=None):
     maniphest = RecordingManiphest(task_pages or [{"data": [], "cursor": {}}])
     project = RecordingProject(column_pages or [{"data": [], "cursor": {}}])
+    dashboard = RecordingDashboard()
     mcp = StubMCP()
-    register_tools(mcp, lambda: RecordingClient(maniphest, project))
-    return mcp.tools, maniphest, project
+    register_tools(mcp, lambda: RecordingClient(maniphest, project, dashboard))
+    return mcp.tools, maniphest, project, dashboard
 
 
 class TestTaskTransactions:
@@ -119,7 +130,7 @@ class TestTaskFieldDiff:
 
 class TestBulkUpdate:
     def test_dry_run_writes_nothing(self) -> None:
-        tools, maniphest, _ = build_tools(
+        tools, maniphest, _, _ = build_tools(
             [
                 {
                     "data": [task(1, status={"value": "open", "name": "Open"})],
@@ -137,7 +148,7 @@ class TestBulkUpdate:
         assert maniphest.edits == []
 
     def test_applies_edits_when_dry_run_is_off(self) -> None:
-        tools, maniphest, _ = build_tools(
+        tools, maniphest, _, _ = build_tools(
             [
                 {
                     "data": [task(1, status={"value": "open", "name": "Open"})],
@@ -159,14 +170,14 @@ class TestBulkUpdate:
         ]
 
     def test_reports_tasks_that_do_not_exist(self) -> None:
-        tools, _, _ = build_tools([{"data": [], "cursor": {}}])
+        tools, _, _, _ = build_tools([{"data": [], "cursor": {}}])
 
         result = tools["pha_task_bulk_update"](task_ids=["T404"], status="resolved")
 
         assert result["errors"] == [{"task_id": "T404", "error": "task not found"}]
 
     def test_rejects_an_empty_change_set(self) -> None:
-        tools, _, _ = build_tools()
+        tools, _, _, _ = build_tools()
 
         result = tools["pha_task_bulk_update"](task_ids=["T1"])
 
@@ -174,7 +185,7 @@ class TestBulkUpdate:
         assert "no fields to update" in result["error"]
 
     def test_rejects_more_than_five_hundred_tasks(self) -> None:
-        tools, maniphest, _ = build_tools()
+        tools, maniphest, _, _ = build_tools()
 
         result = tools["pha_task_bulk_update"](
             task_ids=[str(i) for i in range(501)], status="resolved"
@@ -226,7 +237,7 @@ class TestAggregate:
     def test_counts_and_summarises_each_group(self) -> None:
         day = 86400
         now = 100 * day
-        tools, _, _ = build_tools(
+        tools, _, _, _ = build_tools(
             [
                 {
                     "data": [
@@ -268,7 +279,7 @@ class TestAggregate:
             "data": [task(i) for i in range(100)],
             "cursor": {"after": "more"},
         }
-        tools, maniphest, _ = build_tools([page])
+        tools, maniphest, _, _ = build_tools([page])
 
         result = tools["pha_task_aggregate"](group_by="status", max_tasks=200)
 
@@ -303,7 +314,7 @@ class TestColumnTools:
             "data": [{"phid": "PHID-PCOL-x", "fields": {}}],
             "cursor": {"after": None},
         }
-        tools, _, project = build_tools(column_pages=[first, second])
+        tools, _, project, _ = build_tools(column_pages=[first, second])
 
         result = tools["pha_workboard_search_columns"](limit=150)
 
@@ -319,14 +330,14 @@ class TestColumnTools:
             ],
             "cursor": {},
         }
-        tools, _, _ = build_tools(column_pages=[page])
+        tools, _, _, _ = build_tools(column_pages=[page])
 
         result = tools["pha_workboard_search_columns"](include_hidden=False)
 
         assert [column["phid"] for column in result["columns"]] == ["PHID-PCOL-a"]
 
     def test_edit_column_dry_run_writes_nothing(self) -> None:
-        tools, _, project = build_tools()
+        tools, _, project, _ = build_tools()
 
         result = tools["pha_workboard_edit_column"](
             column_phid="PHID-PCOL-one", hidden=True
@@ -342,7 +353,7 @@ class TestColumnTools:
         assert project.edits == []
 
     def test_edit_column_applies_the_change(self) -> None:
-        tools, _, project = build_tools()
+        tools, _, project, _ = build_tools()
 
         result = tools["pha_workboard_edit_column"](
             column_phid="PHID-PCOL-one", hidden=True, dry_run=False
@@ -361,10 +372,53 @@ class TestColumnTools:
         ]
 
     def test_creating_a_column_requires_a_project_and_name(self) -> None:
-        tools, _, project = build_tools()
+        tools, _, project, _ = build_tools()
 
         result = tools["pha_workboard_edit_column"](name="Done")
 
         assert result["success"] is False
         assert "project_phid and name" in result["error"]
         assert project.edits == []
+
+
+class TestDashboardPanelTool:
+    def test_dry_run_writes_nothing(self) -> None:
+        tools, _, _, dashboard = build_tools()
+
+        result = tools["pha_dashboard_edit_panel"](
+            panel_phid="PHID-DSHP-one", name="Board health"
+        )
+
+        assert result["applied"] is False
+        assert result["would_apply"] == [{"type": "name", "value": "Board health"}]
+        assert dashboard.edits == []
+
+    def test_maps_panel_fields_to_transactions(self) -> None:
+        tools, _, _, dashboard = build_tools()
+
+        tools["pha_dashboard_edit_panel"](
+            panel_phid="PHID-DSHP-one",
+            text="The task standard",
+            query_key="assigned",
+            item_limit=10,
+            dry_run=False,
+        )
+
+        assert dashboard.edits == [
+            {
+                "panel_phid": "PHID-DSHP-one",
+                "transactions": [
+                    {"type": "custom.text", "value": "The task standard"},
+                    {"type": "custom.key", "value": "assigned"},
+                    {"type": "custom.limit", "value": 10},
+                ],
+            }
+        ]
+
+    def test_rejects_an_empty_change_set(self) -> None:
+        tools, _, _, _ = build_tools()
+
+        result = tools["pha_dashboard_edit_panel"](panel_phid="PHID-DSHP-one")
+
+        assert result["success"] is False
+        assert "no panel fields to change" in result["error"]

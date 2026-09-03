@@ -2425,6 +2425,75 @@ def register_tools(  # noqa: C901
         result = _add_task_enumeration_metadata(result, reverse=before is not None)
         return {"success": True, "tasks": result}
 
+    @mcp.tool()
+    @handle_api_errors
+    def pha_dashboard_edit_panel(
+        panel_phid: str,
+        name: Optional[str] = None,
+        text: Optional[str] = None,
+        query_key: Optional[str] = None,
+        query_engine: Optional[str] = None,
+        item_limit: Optional[int] = None,
+        dry_run: bool = True,
+    ) -> dict:
+        """
+        Edit an existing dashboard panel, previewing the change by default.
+
+        Panels are created and placed on a dashboard from the web UI: Conduit
+        exposes no way to set a panel's type, and no way to read panels back,
+        so this tool only updates a panel whose PHID you already have.
+
+        Args:
+            panel_phid: PHID of the panel to edit, from its UI page.
+            name: New panel name.
+            text: New body for a text panel, in remarkup.
+            query_key: Saved query key a query panel reads, such as "assigned".
+            query_engine: Search engine class a query panel searches with, such
+                as "ManiphestTaskSearchEngine".
+            item_limit: How many items a query panel lists.
+            dry_run: When true (the default) nothing is written: the
+                transactions that would be sent are returned for review.
+
+        Returns:
+            The transactions that would be, or were, applied. A field that does
+            not belong to the panel's type is rejected by the server, since the
+            panel type cannot be checked from here first.
+        """
+        transactions = [
+            {"type": transaction_type, "value": value}
+            for transaction_type, value in (
+                ("name", name),
+                ("custom.text", text),
+                ("custom.key", query_key),
+                ("custom.class", query_engine),
+                ("custom.limit", item_limit),
+            )
+            if value is not None
+        ]
+        if not transactions:
+            raise ValueError("no panel fields to change were provided")
+
+        if dry_run:
+            return {
+                "success": True,
+                "applied": False,
+                "panel_phid": panel_phid,
+                "would_apply": transactions,
+            }
+
+        client = get_client_func()
+        result = client.dashboard.edit_panel(
+            panel_phid=panel_phid,
+            transactions=transactions,
+        )
+
+        return {
+            "success": True,
+            "applied": True,
+            "panel_phid": panel_phid,
+            "result": result,
+        }
+
     from conduit.tools.phriction_tools import register_phriction_tools
 
     register_phriction_tools(mcp, get_client_func)

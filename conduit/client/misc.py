@@ -131,6 +131,33 @@ class HarbormasterClient(BasePhabricatorClient):
         return self._make_request("harbormaster.sendmessage", params)
 
 
+class DashboardClient(BasePhabricatorClient):
+    """
+    Client for Dashboard API operations.
+
+    Only "dashboard.panel.edit" exists upstream: dashboards themselves and the
+    panel layout are UI-only, and panels cannot be read back over Conduit.
+    """
+
+    def edit_panel(
+        self, panel_phid: str, transactions: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Apply transactions to an existing dashboard panel.
+
+        Args:
+            panel_phid: PHID of the panel to edit
+            transactions: List of transaction objects
+
+        Returns:
+            The edited panel's object and applied transactions
+        """
+        params = build_transaction_params(
+            transactions=transactions, object_identifier=panel_phid
+        )
+        return self._make_request("dashboard.panel.edit", params)
+
+
 class PasteClient(BasePhabricatorClient):
     """
     Client for Paste (Code Snippets) API operations.
