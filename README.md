@@ -256,6 +256,32 @@ parse error such as `Invalid registration response: ... Invalid JSON: expected
 value at line 1 column 1` (the client received HTML where it expected the OAuth
 metadata or registration JSON).
 
+## Passphrase support
+
+The MCP exposes three deliberately narrow Passphrase tools:
+
+- `pha_passphrase_get` returns entry metadata only. It always calls
+  `passphrase.query` with `needSecrets=false` and strips every response field
+  except an explicit metadata allowlist.
+- `pha_passphrase_edit_policies` can submit only `view` and `edit` policy
+  transactions. It has no credential-material input.
+- `pha_passphrase_get_access_log` returns only explicitly typed
+  `passphrase:lookedAtSecret` transactions and marks the result incomplete if
+  the upstream server hides transaction types.
+
+OAuth deployments must request the Passphrase scope explicitly and reauthorize
+existing sessions after adding it:
+
+```bash
+PHABRICATOR_OAUTH_SCOPE="maniphest file passphrase"
+```
+
+Stock Phorge only provides `passphrase.query`. Policy edits require a compatible
+metadata-only `passphrase.edit` Conduit method, and complete audit results require
+`transaction.search` to expose the `passphrase:lookedAtSecret` type. The MCP
+fails closed when those server-side capabilities are absent; it never requests
+plaintext or guesses that an opaque transaction was a secret access.
+
 ## Configuration
 
 ### Authentication — OAuth2 (Recommended for shared deployments)

@@ -1857,3 +1857,7 @@ def register_tools(  # noqa: C901
     from conduit.tools.paste_tools import register_paste_tools
 
     register_paste_tools(mcp, get_client_func)
+
+    from conduit.tools.passphrase_tools import register_passphrase_tools
+
+    register_passphrase_tools(mcp, get_client_func)

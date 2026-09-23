@@ -11,6 +11,7 @@ from conduit.client.differential import DifferentialClient
 from conduit.client.diffusion import DiffusionClient
 from conduit.client.file import FileClient
 from conduit.client.maniphest import ManiphestClient
+from conduit.client.passphrase import PassphraseClient
 from conduit.client.misc import (
     ConduitClient,
     FlagClient,
@@ -292,6 +293,7 @@ class EnhancedPhabricatorClient(object):
 
         # Initialize client modules
         self.maniphest = ManiphestClient(api_url, api_token, self.http_client)
+        self.passphrase = PassphraseClient(api_url, api_token, self.http_client)
         self.differential = DifferentialClient(api_url, api_token, self.http_client)
         self.diffusion = DiffusionClient(api_url, api_token, self.http_client)
         self.project = ProjectClient(api_url, api_token, self.http_client)
@@ -409,6 +411,9 @@ class PhabricatorClient(object):
 
         # Initialize client modules (same as before)
         self.maniphest = ManiphestClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.passphrase = PassphraseClient(
             api_url, api_token, self.http_client, oauth_token=oauth_token
         )
         self.differential = DifferentialClient(
