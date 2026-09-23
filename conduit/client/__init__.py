@@ -3,6 +3,7 @@ from conduit.client.differential import DifferentialClient
 from conduit.client.diffusion import DiffusionClient
 from conduit.client.file import FileClient
 from conduit.client.maniphest import ManiphestClient
+from conduit.client.passphrase import PassphraseClient
 from conduit.client.misc import (
     ConduitClient,
     FlagClient,
@@ -21,6 +22,7 @@ __all__ = [
     "PhabricatorClient",
     "PhabricatorAPIError",
     "ManiphestClient",
+    "PassphraseClient",
     "DifferentialClient",
     "DiffusionClient",
     "ProjectClient",
