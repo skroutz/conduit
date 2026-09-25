@@ -407,6 +407,11 @@ class ManiphestClient(BasePhabricatorClient):
         """Create a transaction to update the task's Reference custom field."""
         return {"type": "custom.skroutz:reference", "value": reference}
 
+    @staticmethod
+    def create_due_date_transaction(due_date: int) -> ManiphestTaskTransaction:
+        """Create a transaction to update the task's Due Date custom field, as a Unix epoch timestamp."""
+        return {"type": "custom.skroutz:due-date", "value": due_date}
+
     # Helper methods for common search operations
     def search_open_tasks(
         self, attachments: Optional[ManiphestSearchAttachments] = None, limit: int = 100

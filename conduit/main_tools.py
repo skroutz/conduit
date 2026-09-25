@@ -8,6 +8,7 @@ from conduit.client.types import (
     ManiphestSearchConstraints,
     ManiphestTaskTransactionComment,
     ManiphestTaskTransactionDescription,
+    ManiphestTaskTransactionDueDate,
     ManiphestTaskTransactionOwner,
     ManiphestTaskTransactionPriority,
     ManiphestTaskTransactionProjectsAdd,
@@ -397,6 +398,7 @@ def register_tools(  # noqa: C901
         projects_remove: Optional[List[str]] = None,
         projects_set: Optional[List[str]] = None,
         reference: Optional[str] = None,
+        due_date: Optional[int] = None,
     ) -> dict:
         """
         Update the metadata of a Phabricator task.
@@ -412,6 +414,7 @@ def register_tools(  # noqa: C901
             projects_remove: List of project PHIDs to remove the task from.
             projects_set: List of project PHIDs to set (overwrites current projects).
             reference: The new value for the task's Reference custom field.
+            due_date: The new value for the task's Due Date custom field, as a Unix epoch timestamp.
 
         Returns:
             Success status.
@@ -463,6 +466,12 @@ def register_tools(  # noqa: C901
             transactions.append(
                 ManiphestTaskTransactionReference(
                     type="custom.skroutz:reference", value=reference
+                )
+            )
+        if due_date is not None:
+            transactions.append(
+                ManiphestTaskTransactionDueDate(
+                    type="custom.skroutz:due-date", value=due_date
                 )
             )
 

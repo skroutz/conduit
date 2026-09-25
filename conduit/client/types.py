@@ -657,6 +657,13 @@ class ManiphestTaskTransactionReference(ManiphestTaskTransactionBase):
     value: str
 
 
+class ManiphestTaskTransactionDueDate(ManiphestTaskTransactionBase):
+    """Update the Due Date custom field (custom.skroutz:due-date), a Unix epoch timestamp."""
+
+    type: Literal["custom.skroutz:due-date"]
+    value: int
+
+
 # Union type for all possible transaction types
 ManiphestTaskTransaction = Union[
     ManiphestTaskTransactionParent,
@@ -685,6 +692,7 @@ ManiphestTaskTransaction = Union[
     ManiphestTaskTransactionComment,
     ManiphestTaskTransactionMFA,
     ManiphestTaskTransactionReference,
+    ManiphestTaskTransactionDueDate,
 ]
 
 
