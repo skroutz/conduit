@@ -14,6 +14,7 @@ from conduit.client.maniphest import ManiphestClient
 from conduit.client.passphrase import PassphraseClient
 from conduit.client.misc import (
     ConduitClient,
+    DashboardClient,
     FlagClient,
     HarbormasterClient,
     MacroClient,
@@ -307,6 +308,7 @@ class EnhancedPhabricatorClient(object):
         self.macro = MacroClient(api_url, api_token, self.http_client)
         self.flag = FlagClient(api_url, api_token, self.http_client)
         self.phid = PhidClient(api_url, api_token, self.http_client)
+        self.dashboard = DashboardClient(api_url, api_token, self.http_client)
 
     @retry_request(max_retries=3, retry_delay=1.0, retry_backoff=2.0)
     @cached_request(ttl=300)
@@ -453,6 +455,9 @@ class PhabricatorClient(object):
             api_url, api_token, self.http_client, oauth_token=oauth_token
         )
         self.phid = PhidClient(
+            api_url, api_token, self.http_client, oauth_token=oauth_token
+        )
+        self.dashboard = DashboardClient(
             api_url, api_token, self.http_client, oauth_token=oauth_token
         )
 
