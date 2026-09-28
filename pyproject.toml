@@ -27,7 +27,8 @@ classifiers = [
     "Topic :: Software Development :: Bug Tracking",
 ]
 dependencies = [
-    "fastmcp>=3,<4",
+    "fastmcp==4.0.10",
+    "mcp==2.2.0",
     "httpx[socks]",
     "python-dotenv",
 ]
