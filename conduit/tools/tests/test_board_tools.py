@@ -439,8 +439,35 @@ class TestColumnTools:
                 "hidden": True,
                 "limit": None,
                 "sequence": None,
+                "clear_limit": False,
             }
         ]
+
+    def test_edit_column_clears_the_limit(self) -> None:
+        tools, _, project, _ = build_tools()
+
+        preview = tools["pha_workboard_edit_column"](
+            column_phid="PHID-PCOL-one", clear_limit=True
+        )
+        assert preview["would_change"] == {"clear_limit": True}
+        assert project.edits == []
+
+        tools["pha_workboard_edit_column"](
+            column_phid="PHID-PCOL-one", clear_limit=True, dry_run=False
+        )
+        assert project.edits[0]["clear_limit"] is True
+        assert project.edits[0]["limit"] is None
+
+    def test_edit_column_rejects_limit_with_clear_limit(self) -> None:
+        tools, _, project, _ = build_tools()
+
+        result = tools["pha_workboard_edit_column"](
+            column_phid="PHID-PCOL-one", limit=3, clear_limit=True, dry_run=False
+        )
+
+        assert result["success"] is False
+        assert "limit or clear_limit" in result["error"]
+        assert project.edits == []
 
     def test_creating_a_column_requires_a_project_and_name(self) -> None:
         tools, _, project, _ = build_tools()

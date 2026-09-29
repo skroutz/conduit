@@ -296,6 +296,13 @@ class TestWorkboardExistingFeatures(unittest.TestCase):
         self.assertTrue(searched["isHidden"])
         self.assertEqual(searched["sequence"], 0)
 
+        limited = self.project_client.edit_column(column_phid=column["phid"], limit=5)
+        self.assertEqual(limited["pointLimit"], 5)
+        cleared = self.project_client.edit_column(
+            column_phid=column["phid"], clear_limit=True
+        )
+        self.assertIsNone(cleared["pointLimit"])
+
     def _validate_column_structure(self, column):
         """Helper method to validate column object structure."""
         # Basic column fields

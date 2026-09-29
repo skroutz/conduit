@@ -2319,6 +2319,7 @@ def register_tools(  # noqa: C901
         hidden: Optional[bool] = None,
         sequence: Optional[int] = None,
         limit: Optional[int] = None,
+        clear_limit: bool = False,
         dry_run: bool = True,
     ) -> dict:
         """
@@ -2329,8 +2330,14 @@ def register_tools(  # noqa: C901
             project_phid: PHID of the board, required when creating a column.
             name: New name for the column, required when creating one.
             hidden: True to hide the column from the board, False to show it.
-            sequence: Position of the column on the board.
-            limit: Point limit for the column, 0 to remove the limit.
+            sequence: The column's final 0-based place in the board's column
+                order, which counts every column on the board. Milestone
+                columns always display after the others, and columns that proxy
+                a subproject or milestone cannot be reordered.
+            limit: Point limit for the column. 0 sets a limit of 0; use
+                clear_limit to remove the limit.
+            clear_limit: True to remove the column's point limit. Cannot be
+                combined with limit.
             dry_run: When true (the default) nothing is written: the requested
                 change is returned for review.
 
@@ -2341,6 +2348,8 @@ def register_tools(  # noqa: C901
         """
         if column_phid is None and not (project_phid and name):
             raise ValueError("creating a column requires both project_phid and name")
+        if clear_limit and limit is not None:
+            raise ValueError("pass either limit or clear_limit, not both")
 
         change = {
             field: value
@@ -2349,6 +2358,7 @@ def register_tools(  # noqa: C901
                 ("hidden", hidden),
                 ("sequence", sequence),
                 ("limit", limit),
+                ("clear_limit", clear_limit or None),
             )
             if value is not None
         }
@@ -2372,6 +2382,7 @@ def register_tools(  # noqa: C901
             hidden=hidden,
             limit=limit,
             sequence=sequence,
+            clear_limit=clear_limit,
         )
 
         return {"success": True, "applied": True, "column": column}
