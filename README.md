@@ -282,6 +282,26 @@ metadata-only `passphrase.edit` Conduit method, and complete audit results requi
 fails closed when those server-side capabilities are absent; it never requests
 plaintext or guesses that an opaque transaction was a secret access.
 
+## User directory support
+
+`pha_user_search` calls `user.search`, which lives in the People application.
+
+OAuth deployments must request the People scope explicitly and reauthorize
+existing sessions after adding it:
+
+```bash
+PHABRICATOR_OAUTH_SCOPE="maniphest file people"
+```
+
+Re-authenticating on its own is not enough. Consent covers only the scopes the
+client requests, so a deployment whose `PHABRICATOR_OAUTH_SCOPE` omits `people`
+keeps returning `You do not have authorization to call this method` however many
+times the session is cleared.
+
+The scope must also exist server-side: stock Phabricator maps no scope to
+`PhabricatorPeopleApplication`, so `user.*` is unreachable from an OAuth token
+until the instance defines one. API-token deployments are unaffected.
+
 ## Configuration
 
 ### Authentication — OAuth2 (Recommended for shared deployments)
