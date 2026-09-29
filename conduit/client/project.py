@@ -117,6 +117,7 @@ class ProjectClient(BasePhabricatorClient):
         hidden: Optional[bool] = None,
         limit: Optional[int] = None,
         sequence: Optional[int] = None,
+        clear_limit: bool = False,
     ) -> Dict[str, Any]:
         """
         Create or edit a workboard column.
@@ -126,8 +127,11 @@ class ProjectClient(BasePhabricatorClient):
             project_phid: PHID of the board, required when creating.
             name: New column name, required when creating.
             hidden: Whether the column is hidden from the board.
-            limit: Point limit for the column, 0 to remove it.
-            sequence: Position of the column on the board.
+            limit: Point limit for the column.
+            sequence: The column's final 0-based place in the board's column
+                order.
+            clear_limit: Remove the column's point limit. Not combinable with
+                limit.
 
         Returns:
             The column's id, phid, name, hidden, sequence, pointLimit,
@@ -140,6 +144,7 @@ class ProjectClient(BasePhabricatorClient):
             "hidden": hidden,
             "limit": limit,
             "sequence": sequence,
+            "clearLimit": clear_limit or None,
         }
         params = {k: v for k, v in params.items() if v is not None}
 
