@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 from fastmcp import FastMCP
 
+from conduit.client.maniphest import ManiphestClient
 from conduit.client.types import (
     ManiphestSearchAttachments,
     ManiphestSearchConstraints,
@@ -1107,19 +1108,30 @@ def register_tools(  # noqa: C901
         task_id: str,
         relationship_type: Literal["subtask", "parent"],
         target_ids: str,
+        operation: Literal["add", "remove", "set"],
     ) -> dict:
         """
-        Update task relationships (subtasks or parents).
+        Add, remove, or explicitly replace task relationships (subtasks or parents).
+
+        Use operation="add" to link tasks while preserving existing relationships.
+        Use operation="remove" to unlink only the supplied tasks.
+        WARNING: operation="set" replaces the entire list of the selected
+        relationship type, removing every existing relationship not in target_ids.
+        The operation is required; calls without it do not change any relationships.
 
         Args:
             task_id: The PHID of the task to update (must be PHID format, not numeric ID)
             relationship_type: Type of relationship ("subtask" or "parent")
-            target_ids: Comma-separated list of target task PHIDs (must be PHID format, not numeric IDs)
+            target_ids: Non-empty, comma-separated list of target task PHIDs (not numeric IDs). For "set", supply the complete desired list; omitted relationships are removed. Empty lists are rejected for all operations.
+            operation: Required action: "add" preserves existing relationships, "remove" unlinks only the targets, and "set" replaces the entire list, removing omitted relationships.
 
         Returns:
-            Success status
+            Success status and the applied operation and relationship type
         """
-        client = get_client_func()
+        if operation not in ("add", "remove", "set"):
+            raise ValueError("Invalid operation. Use 'add', 'remove', or 'set'")
+        if relationship_type not in ("subtask", "parent"):
+            raise ValueError("Invalid relationship_type. Use 'subtask' or 'parent'")
 
         # Parse comma-separated target IDs
         target_list = [
@@ -1127,28 +1139,29 @@ def register_tools(  # noqa: C901
         ]
 
         if not target_list:
-            return {"success": False, "error": "No valid target IDs provided"}
+            raise ValueError(
+                "No valid target IDs provided; empty lists are not allowed"
+            )
 
-        if relationship_type == "subtask":
-            transaction_type = "subtasks.set"
-        elif relationship_type == "parent":
-            transaction_type = "parents.set"
-        else:
-            return {
-                "success": False,
-                "error": "Invalid relationship_type. Use 'subtask' or 'parent'",
-            }
-
+        transaction_builders = {
+            ("subtask", "add"): ManiphestClient.create_subtasks_add_transaction,
+            ("subtask", "remove"): ManiphestClient.create_subtasks_remove_transaction,
+            ("subtask", "set"): ManiphestClient.create_subtasks_set_transaction,
+            ("parent", "add"): ManiphestClient.create_parents_add_transaction,
+            ("parent", "remove"): ManiphestClient.create_parents_remove_transaction,
+            ("parent", "set"): ManiphestClient.create_parents_set_transaction,
+        }
+        transaction = transaction_builders[(relationship_type, operation)](target_list)
+        client = get_client_func()
         client.maniphest.edit_task(
             object_identifier=task_id,
-            transactions=[
-                {
-                    "type": transaction_type,
-                    "value": target_list,
-                }
-            ],
+            transactions=[transaction],
         )
-        return {"success": True}
+        return {
+            "success": True,
+            "operation": operation,
+            "relationship_type": relationship_type,
+        }
 
     @mcp.tool()
     @handle_api_errors
