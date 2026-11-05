@@ -302,6 +302,45 @@ The scope must also exist server-side: stock Phabricator maps no scope to
 `PhabricatorPeopleApplication`, so `user.*` is unreachable from an OAuth token
 until the instance defines one. API-token deployments are unaffected.
 
+## Task relationships
+
+`pha_task_update_relationships` requires an explicit `operation` for both
+`relationship_type="subtask"` and `relationship_type="parent"`:
+
+| Operation | Effect |
+|---|---|
+| `add` | Links the supplied tasks and preserves existing relationships. |
+| `remove` | Unlinks only the supplied tasks and preserves other relationships. |
+| `set` | **Replaces the entire list. Any existing relationship omitted from `target_ids` is removed.** |
+
+To add one subtask without losing existing subtasks:
+
+```json
+{
+  "task_id": "PHID-TASK-<parent-task>",
+  "relationship_type": "subtask",
+  "target_ids": "PHID-TASK-<new-subtask>",
+  "operation": "add"
+}
+```
+
+Use task PHIDs, not numeric IDs. `target_ids` is a non-empty, comma-separated
+string; empty lists are rejected for every operation, including `set`.
+Add/remove use native `maniphest.edit` transactions, without reading and
+rewriting the full relationship list.
+
+**Migration:** previous versions implicitly replaced relationships. Calls must
+now include `operation`; an old call without it is rejected without a write.
+After deploying the updated Conduit server, refresh Portal's upstream tool
+catalog and reconnect clients as needed so they discover the required argument
+and replacement warning. Update saved prompts and scripts to use `add` for
+additions and reserve `set` for intentional full-list replacement.
+
+Phabricator/Phorge already supports `subtasks.add/remove/set` and
+`parents.add/remove/set` through `maniphest.edit`. This change requires no
+Phabricator patch, database migration, or additional OAuth scope: it uses the
+same Maniphest endpoint, scope, and task permissions as before.
+
 ## Configuration
 
 ### Authentication — OAuth2 (Recommended for shared deployments)
