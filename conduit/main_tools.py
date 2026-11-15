@@ -646,7 +646,8 @@ def register_tools(  # noqa: C901
 
         Args:
             title: Task title
-            description: Task description
+            description: Task description (remarkup). Embed an uploaded image or
+                file with `{F123}`; get the id from pha_file_prepare_upload.
             owner_phid: PHID of the user to assign this task to
 
         Returns:
@@ -701,7 +702,9 @@ def register_tools(  # noqa: C901
         Args:
             task_id: The ID, PHID of the task to update.
             title: The new title for the task.
-            description: The new description for the task.
+            description: The new description for the task (remarkup). Embed an
+                uploaded image or file with `{F123}`; get the id from
+                pha_file_prepare_upload.
             priority: The new priority for the task.
             status: The new status for the task.
             owner_phid: The PHID of the new owner for the task.
