@@ -341,6 +341,105 @@ Phabricator/Phorge already supports `subtasks.add/remove/set` and
 Phabricator patch, database migration, or additional OAuth scope: it uses the
 same Maniphest endpoint, scope, and task permissions as before.
 
+## File uploads
+
+`pha_file_download` returns a file as base64. Uploading cannot mirror that: an
+HTTP deployment has no access to the caller's disk, and a model cannot emit a
+real file as a tool argument (a 350 KB image is about 470,000 base64
+characters). Uploads therefore take two steps:
+
+1. `pha_file_prepare_upload(name)` returns an upload URL, a single-use token
+   and a ready-made `curl` command.
+2. The caller sends the raw file bytes (`POST` or `PUT`) with that command:
+
+   ```bash
+   curl -sS -H 'X-Conduit-Upload-Token: <token>' \
+     --data-binary @screenshot.png https://conduit.example.com/files/upload
+   ```
+
+The response carries the file id and the remarkup that embeds the file in a
+task description or comment:
+
+```json
+{
+  "success": true,
+  "file": {
+    "id": "F123",
+    "phid": "PHID-FILE-abcdefghijklmnopqrst",
+    "name": "screenshot.png",
+    "size": 348211,
+    "uri": "https://phabricator.example.com/F123",
+    "view_policy": "no-one"
+  },
+  "remarkup": "{F123}"
+}
+```
+
+The file is stored with `file.upload` using the credential of the user who
+called `pha_file_prepare_upload`, so it is owned by that user. OAuth
+deployments need the `file` scope.
+
+### Who can see an uploaded file
+
+Files are created with view policy `no-one`: only the author can open the
+file, instead of every logged-in user as the server-wide `files.default.view`
+usually allows. Anyone who can see an object a file is *attached* to can also
+see the file, and what embedding `{F123}` does depends on the server:
+
+| Server | Embedding `{F123}` through Conduit | Who sees the file |
+|---|---|---|
+| Phabricator before May 2022 | Attaches the file to the task | The task's readers |
+| Phabricator since May 2022, Phorge | Records a reference only | The author, until the author chooses **Attach** under **Referenced Files** on the task page |
+
+The newer servers have no Conduit call that attaches a file, so there the
+choice is between that manual step and a wider policy for every upload, set
+with `PHABRICATOR_MCP_UPLOAD_VIEW_POLICY`: `users` for all logged-in users, or
+a project PHID for its members. A wider policy shows the file to people who
+cannot see the task it is embedded in.
+
+The tool is only registered on the HTTP transports (`http`, `sse`) and only
+when the server knows its public URL:
+
+| Variable | Description |
+|---|---|
+| `PHABRICATOR_MCP_SERVER_URL` (or `--server-url`) | Public base URL of this server. Uploads go to `<server-url>/files/upload`. Without it the tool is not offered. |
+| `PHABRICATOR_MCP_MAX_UPLOAD_MB` | Largest accepted file in MiB (default: `16`). |
+| `PHABRICATOR_MCP_UPLOAD_VIEW_POLICY` | View policy every uploaded file is created with (default: `no-one`). See [Who can see an uploaded file](#who-can-see-an-uploaded-file). |
+
+How the endpoint is protected:
+
+- `/files/upload` sits outside the MCP authentication, so the upload token is
+  its only credential. The token is 256 bits of randomness, expires after 10
+  minutes and is consumed by the first upload it starts, successful or not.
+- The token travels in a header, never in the URL, to keep it out of access
+  logs.
+- Unknown, expired and used tokens get the same `404`, before any of the body
+  is read.
+- A body over the limit is rejected with `413` while it streams in. Nothing is
+  written to disk.
+- A user can hold at most 10 prepared uploads at a time.
+- Redeeming a token starts an active upload. A user can have 2 at once and the
+  server 8; the next one gets `429` and keeps its token for a retry. The
+  slot is held until Phabricator has answered. A body that takes longer than 5
+  minutes gets `408`.
+
+Deployment notes:
+
+- Pending uploads live in the memory of the server process. Run a single
+  worker and a single replica, or a token may reach a process that never
+  issued it. A restart drops the pending uploads.
+- A reverse proxy in front of Conduit must allow the body size. nginx defaults
+  to `client_max_body_size 1m`; raise it for the upload path. Under a subpath
+  the endpoint is covered by the same forward as `/mcp`.
+- The file reaches Phabricator in one `file.upload` request, which base64 and
+  form encoding inflate to about 1.42 times the file size. That request has to
+  fit the `post_max_size` of PHP on the Phabricator host, so raise
+  `PHABRICATOR_MCP_MAX_UPLOAD_MB` only when the host has the headroom.
+- While an upload is forwarded the server holds roughly six times the file
+  size in memory (the body, its base64 form and the encoded request), and at
+  most 8 uploads run at once, so size the container for 8 times six times the
+  limit you configure.
+
 ## Configuration
 
 ### Authentication — OAuth2 (Recommended for shared deployments)

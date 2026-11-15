@@ -8,6 +8,11 @@ from fastmcp.server.dependencies import get_http_headers
 
 from conduit.client import PhabricatorClient
 from conduit.main_tools import register_tools
+from conduit.tools.file_upload_tools import (
+    DEFAULT_MAX_UPLOAD_MB,
+    DEFAULT_VIEW_POLICY,
+    register_file_upload_tools,
+)
 
 
 class PhabricatorConfig(object):
@@ -19,6 +24,16 @@ class PhabricatorConfig(object):
         self.disable_cert_verify = os.getenv(
             "PHABRICATOR_DISABLE_CERT_VERIFY", ""
         ).lower() in ("1", "true", "yes")
+
+        max_upload_mb = os.getenv("PHABRICATOR_MCP_MAX_UPLOAD_MB") or str(
+            DEFAULT_MAX_UPLOAD_MB
+        )
+        if not max_upload_mb.isdigit() or int(max_upload_mb) == 0:
+            raise ValueError("PHABRICATOR_MCP_MAX_UPLOAD_MB must be a positive integer")
+        self.max_upload_bytes = int(max_upload_mb) * 1024 * 1024
+        self.upload_view_policy = (
+            os.getenv("PHABRICATOR_MCP_UPLOAD_VIEW_POLICY") or DEFAULT_VIEW_POLICY
+        )
 
         if require_token and not self.token and not self.client_id:
             raise ValueError(
@@ -57,8 +72,10 @@ class ConduitApp:
         oauth_client=None,
         transport: Optional[str] = None,
         auth_provider=None,
+        server_url: Optional[str] = None,
     ):
         self.config = config
+        self.server_url = server_url
         # ``transport`` is the source of truth; ``use_sse`` is kept for
         # backward compatibility with existing callers/tests.
         if transport is None:
@@ -150,6 +167,17 @@ class ConduitApp:
     def register_tools(self):
         """Register all MCP tools."""
         register_tools(self.mcp, self.get_client)
+
+        # The upload endpoint is served by this process, so it only exists on
+        # the HTTP transports and needs the URL clients reach the server at.
+        if self.transport in ("sse", "http") and self.server_url:
+            register_file_upload_tools(
+                self.mcp,
+                self.get_client,
+                self.server_url,
+                max_upload_bytes=self.config.max_upload_bytes,
+                view_policy=self.config.upload_view_policy,
+            )
 
     def run_sse_mode(self, host: str, port: int):
         """Run the application in SSE mode."""
@@ -291,7 +319,8 @@ def main():
             "Public base URL of THIS MCP server (e.g. http://localhost:8000).  "
             "Required for OAuth2 in streamable HTTP mode so the server can "
             "advertise its issuer and the redirect URI (<server-url>/auth/callback). "
-            "Can also be set via PHABRICATOR_MCP_SERVER_URL."
+            "Also enables file uploads (pha_file_prepare_upload) on the HTTP "
+            "transports.  Can also be set via PHABRICATOR_MCP_SERVER_URL."
         ),
     )
     parser.add_argument(
@@ -356,6 +385,7 @@ def main():
     args = parser.parse_args()
 
     transport = resolve_transport(args.transport)
+    server_url = args.server_url or os.getenv("PHABRICATOR_MCP_SERVER_URL")
 
     oauth_requested = bool(args.client_id or os.getenv("PHABRICATOR_OAUTH_CLIENT_ID"))
 
@@ -384,7 +414,6 @@ def main():
             # Streamable HTTP: conduit acts as the MCP-spec OAuth server,
             # proxying upstream to Phabricator.  No local browser flow here —
             # the MCP client drives the redirect.
-            server_url = args.server_url or os.getenv("PHABRICATOR_MCP_SERVER_URL")
             if not server_url:
                 parser.error(
                     "--server-url (or PHABRICATOR_MCP_SERVER_URL) is required for "
@@ -452,12 +481,20 @@ def main():
         )
         print_server_info(config)
 
+    if transport in ("sse", "http") and not server_url:
+        print(
+            "Note: file uploads (pha_file_prepare_upload) are disabled; set "
+            "--server-url or PHABRICATOR_MCP_SERVER_URL to enable them.",
+            file=sys.stderr,
+        )
+
     # Create and run the application
     app = ConduitApp(
         config,
         oauth_client=oauth_client,
         transport=transport,
         auth_provider=auth_provider,
+        server_url=server_url,
     )
     app.register_tools()
 

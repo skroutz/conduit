@@ -63,13 +63,17 @@ class FileClient(BasePhabricatorClient):
 
         return self._make_request("file.allocate", params)
 
-    def upload_file(self, data: bytes, name: str = None) -> Dict[str, Any]:
+    def upload_file(
+        self, data: bytes, name: str = None, view_policy: str = None
+    ) -> Dict[str, Any]:
         """
         Upload a file to the server.
 
         Args:
             data: File data
             name: Optional file name
+            view_policy: Optional view policy, e.g. "no-one"; the server default
+                applies when omitted
 
         Returns:
             Upload result
@@ -77,6 +81,8 @@ class FileClient(BasePhabricatorClient):
         params = {"data_base64": data}
         if name:
             params["name"] = name
+        if view_policy:
+            params["viewPolicy"] = view_policy
 
         return self._make_request("file.upload", params)
 
